@@ -40,6 +40,7 @@ jobs:
       - name: Rename artifacts with version
         working-directory: dist/artifacts
         run: |
+          VERSION="${{ env.VERSION }}"
           mv mycli-${{ matrix.platform_tag }} mycli-${VERSION}-${{ matrix.platform_tag }}
           mv mycli-${{ matrix.platform_tag }}.tar.gz mycli-${VERSION}-${{ matrix.platform_tag }}.tar.gz
           mv mycli-${{ matrix.platform_tag }}.tar.gz.sha256 mycli-${VERSION}-${{ matrix.platform_tag }}.tar.gz.sha256
@@ -71,6 +72,7 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release
+          VERSION="${{ env.VERSION }}"
           for arch in macos-arm64 macos-x86_64; do
             tar_path=$(find release_artifacts -type f -name "mycli-${VERSION}-${arch}.tar.gz" -print -quit)
             sha_path=$(find release_artifacts -type f -name "mycli-${VERSION}-${arch}.tar.gz.sha256" -print -quit)
