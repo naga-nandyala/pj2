@@ -150,12 +150,22 @@ SCRIPT_DIR="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
 APP_ROOT="$(cd "${{SCRIPT_DIR}}/.." && pwd)"
 VENV_DIR="${{APP_ROOT}}/{venv_rel_path}"
 
+echo "Debug: SCRIPT_DIR=${{SCRIPT_DIR}}" >&2
+echo "Debug: APP_ROOT=${{APP_ROOT}}" >&2
+echo "Debug: VENV_DIR=${{VENV_DIR}}" >&2
+echo "Debug: Checking for python3 at ${{VENV_DIR}}/bin/python3" >&2
+echo "Debug: File exists check: $(ls -la "${{VENV_DIR}}/bin/python3" 2>&1 || echo 'NOT FOUND')" >&2
+
 if [[ -x "${{VENV_DIR}}/bin/python3" ]]; then
     PYTHON="${{VENV_DIR}}/bin/python3"
+    echo "Debug: Using python3" >&2
 elif [[ -x "${{VENV_DIR}}/bin/python" ]]; then
     PYTHON="${{VENV_DIR}}/bin/python"
+    echo "Debug: Using python" >&2
 else
-    echo "Could not locate python interpreter inside ${venv_rel_path}" >&2
+    echo "Error: Could not locate python interpreter inside {venv_rel_path}" >&2
+    echo "Debug: Contents of ${{VENV_DIR}}/bin/:" >&2
+    ls -la "${{VENV_DIR}}/bin/" 2>&1 || echo "Directory does not exist" >&2
     exit 1
 fi
 
