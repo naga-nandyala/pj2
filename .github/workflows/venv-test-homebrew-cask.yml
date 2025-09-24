@@ -1,0 +1,61 @@
+name: (venv bundle) - homebrew cask test
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to test (defaults to latest release)"
+        required: false
+        type: string
+
+jobs:
+  test-cask:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+          - runner: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@master
+
+      - name: Environment info
+        run: |
+          echo "Runner: ${{ matrix.runner }}"
+          echo "Expected arch: ${{ matrix.arch }}"
+          echo "Actual arch: $(uname -m)"
+          brew --version | head -n1
+
+      - name: Tap and install cask
+        run: |
+          brew untap naga-nandyala/mycli-app 2>/dev/null || true
+          brew tap naga-nandyala/mycli-app
+          brew update
+          brew install --cask mycli-app-venv-pj2
+
+      - name: Validate cask installation
+        run: |
+          if ! command -v mycli >/dev/null; then
+            echo "mycli not found after cask install" >&2
+            exit 1
+          fi
+          mycli --version
+          mycli status || true
+          mycli --help | head -20
+
+      - name: Basic broker attempt (non-fatal)
+        run: |
+          set +e
+          mycli login --force-broker 2>&1 | head -40
+          echo "Broker test executed (errors acceptable in CI)."
+
+      - name: Cleanup
+        if: always()
+        run: |
+          brew uninstall --cask mycli-app-venv-pj2 2>/dev/null || true
+          brew untap naga-nandyala/mycli-app 2>/dev/null || true
