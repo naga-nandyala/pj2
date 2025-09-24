@@ -36,6 +36,7 @@ Notes
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import os
 import shutil
@@ -74,17 +75,23 @@ def _normalize_path(path: Path) -> str:
 
 
 def _detect_version() -> str:
-    """Import the package straight from the source tree to get its version."""
-    sys.path.insert(0, str(SRC_DIR))
+    """Extract the package version without importing optional dependencies."""
+
+    init_path = SRC_DIR / PACKAGE_NAME / "__init__.py"
     try:
-        module = __import__(PACKAGE_NAME)
-        version = getattr(module, "__version__", None)
-        if not version:
-            raise BuildError("Could not determine version from package (__version__ missing)")
-        return version
-    finally:
-        # Remove the temporary insertion to avoid polluting sys.path
-        sys.path.pop(0)
+        source = init_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:  # pragma: no cover - defensive
+        raise BuildError(f"Could not locate {init_path} to determine version") from exc
+
+    module = ast.parse(source, filename=str(init_path))
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "__version__":
+                    value = node.value
+                    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                        return value.value
+    raise BuildError("Could not determine version from package (__version__ missing)")
 
 
 def _virtualenv_python(venv_dir: Path) -> Path:
