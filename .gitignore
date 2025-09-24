@@ -234,3 +234,4 @@ yarn-error.log*
 # results/
 
 .build*
+*.tar.gz
