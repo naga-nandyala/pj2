@@ -297,5 +297,5 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
         sys.exit(1)
 
 
-if __name__ == "__main__":  # pragma: no cover - manual invocation 
+if __name__ == "__main__":  # pragma: no cover - manual invocation
     main()
