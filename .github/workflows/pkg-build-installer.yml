@@ -1,0 +1,221 @@
+name: (pkg installer) - release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to release"
+        required: false
+        default: "1.0.0"
+      use_distribution:
+        description: "Use advanced distribution XML (experimental)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+            platform_tag: macos-arm64
+          - runner: macos-13
+            arch: x86_64
+            platform_tag: macos-x86_64
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Xcode Command Line Tools (if needed)
+        run: |
+          # Check if pkgbuild is available
+          if ! command -v pkgbuild >/dev/null 2>&1; then
+            echo "Installing Xcode Command Line Tools..."
+            xcode-select --install || true
+            # Wait for installation to complete
+            until command -v pkgbuild >/dev/null 2>&1; do
+              echo "Waiting for pkgbuild..."
+              sleep 10
+            done
+          fi
+          pkgbuild --version
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Build .pkg installer
+        run: |
+          EXTRA_ARGS=""
+          if [ "${{ inputs.use_distribution }}" = "true" ]; then
+            EXTRA_ARGS="--use-distribution"
+          fi
+          python scripts/build_pkg_installer.py --platform-tag ${{ matrix.platform_tag }} $EXTRA_ARGS
+
+      - name: Verify .pkg creation
+        working-directory: dist/pkg_artifacts
+        run: |
+          VERSION="${{ env.VERSION }}"
+          PKG_FILE="mycli-${VERSION}-${{ matrix.platform_tag }}.pkg"
+          SHA_FILE="${PKG_FILE}.sha256"
+          
+          if [ ! -f "$PKG_FILE" ]; then
+            echo "Error: Package file not found: $PKG_FILE"
+            ls -la
+            exit 1
+          fi
+          
+          if [ ! -f "$SHA_FILE" ]; then
+            echo "Error: Checksum file not found: $SHA_FILE"
+            ls -la
+            exit 1
+          fi
+          
+          echo "Package created successfully:"
+          ls -lh "$PKG_FILE"
+          echo "SHA256:"
+          cat "$SHA_FILE"
+
+      - name: Test .pkg installer (basic validation)
+        working-directory: dist/pkg_artifacts
+        run: |
+          VERSION="${{ env.VERSION }}"
+          PKG_FILE="mycli-${VERSION}-${{ matrix.platform_tag }}.pkg"
+          
+          # Test package structure without installing
+          echo "=== Package contents ==="
+          pkgutil --payload-files "$PKG_FILE" | head -20
+          
+          echo "=== Package info ==="
+          pkgutil --pkg-info-plist "$PKG_FILE"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mycli-${{ env.VERSION }}-${{ matrix.platform_tag }}-pkg
+          path: |
+            dist/pkg_artifacts/mycli-${{ env.VERSION }}-${{ matrix.platform_tag }}.pkg
+            dist/pkg_artifacts/mycli-${{ env.VERSION }}-${{ matrix.platform_tag }}.pkg.sha256
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_artifacts
+          merge-multiple: true
+
+      - name: List release files
+        run: |
+          echo "=== Downloaded artifacts ==="
+          ls -la release_artifacts/
+          
+          echo "=== Package sizes ==="
+          cd release_artifacts
+          for pkg in *.pkg; do
+            if [ -f "$pkg" ]; then
+              size_mb=$(du -m "$pkg" | cut -f1)
+              echo "$pkg: ${size_mb}MB"
+            fi
+          done
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          VERSION="${{ env.VERSION }}"
+          
+          for arch in macos-arm64 macos-x86_64; do
+            pkg_path=$(find release_artifacts -type f -name "mycli-${VERSION}-${arch}.pkg" -print -quit)
+            sha_path=$(find release_artifacts -type f -name "mycli-${VERSION}-${arch}.pkg.sha256" -print -quit)
+            
+            if [[ -z "$pkg_path" || -z "$sha_path" ]]; then
+              echo "Missing artifacts for ${arch}" >&2
+              echo "Expected: mycli-${VERSION}-${arch}.pkg"
+              echo "Available files:"
+              find release_artifacts -name "*.pkg" -o -name "*.sha256"
+              exit 1
+            fi
+            
+            cp "$pkg_path" release/
+            cp "$sha_path" release/
+            
+            echo "Prepared ${arch} artifacts:"
+            echo "  PKG: $(basename "$pkg_path")"
+            echo "  SHA: $(basename "$sha_path")"
+          done
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}-pkg
+          name: v${{ env.VERSION }} (PKG Installer)
+          generate_release_notes: true
+          body: |
+            ## MyCLI PKG Installer Release
+            
+            This release provides native macOS installer packages (.pkg) for the MyCLI application.
+            
+            ### Installation
+            
+            **Option 1: Direct Download & Install**
+            ```bash
+            # Download the appropriate .pkg for your architecture
+            # Double-click to install, or use command line:
+            sudo installer -pkg mycli-${{ env.VERSION }}-macos-arm64.pkg -target /
+            ```
+            
+            **Option 2: Homebrew Cask (Recommended)**
+            ```bash
+            brew tap naga-nandyala/mycli-app
+            brew install --cask mycli-app-pkg  # Once cask is updated
+            ```
+            
+            ### What's Installed
+            - **Executable**: `/usr/local/bin/mycli`
+            - **Runtime**: `/usr/local/libexec/mycli-venv/`
+            - **No symlinks**: Direct installation, no complex path resolution
+            
+            ### Architecture Support
+            - **ARM64**: For Apple Silicon Macs (M1, M2, M3, etc.)
+            - **x86_64**: For Intel Macs
+            
+            ### Verification
+            After installation, verify with:
+            ```bash
+            mycli --version
+            mycli status
+            ```
+            
+            ### Uninstallation
+            ```bash
+            # Remove installed files
+            sudo rm -f /usr/local/bin/mycli
+            sudo rm -rf /usr/local/libexec/mycli-venv
+            
+            # Or if installed via Homebrew:
+            brew uninstall --cask mycli-app-pkg
+            ```
+          files: |
+            release/mycli-${{ env.VERSION }}-macos-arm64.pkg
+            release/mycli-${{ env.VERSION }}-macos-arm64.pkg.sha256
+            release/mycli-${{ env.VERSION }}-macos-x86_64.pkg
+            release/mycli-${{ env.VERSION }}-macos-x86_64.pkg.sha256
