@@ -1,0 +1,31 @@
+name: Build PyInstaller bundle (macOS ARM)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pyinstaller:
+    runs-on: macos-14
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Build PyInstaller bundle
+        run: python scripts/build_pyinstaller_bundle.py --platform-tag macos-universal2 --onedir
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyinstaller-macos-universal2
+          path: |
+            dist/artifacts/mycli-macos-universal2/
+            dist/artifacts/mycli-macos-universal2.tar.gz
+            dist/artifacts/mycli-macos-universal2.tar.gz.sha256
