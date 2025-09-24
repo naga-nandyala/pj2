@@ -54,7 +54,8 @@ jobs:
               sleep 10
             done
           fi
-          pkgbuild --version
+          echo "pkgbuild found: $(which pkgbuild)"
+          pkgbuild 2>&1 | head -5 || true
 
       - name: Upgrade pip
         run: python -m pip install --upgrade pip
