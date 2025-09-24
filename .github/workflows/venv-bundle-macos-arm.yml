@@ -1,4 +1,4 @@
-name: Release virtualenv bundles (macOS)
+name: (venv bundle) - release
 
 on:
   workflow_dispatch:
