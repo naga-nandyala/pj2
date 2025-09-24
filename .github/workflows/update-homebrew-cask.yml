@@ -123,19 +123,17 @@ jobs:
             cask "mycli-app-venv-pj2" do
               version "__VERSION__"
 
-              on_arm do
-                sha256 "__ARM64_SHA__"
-                url "https://github.com/naga-nandyala/pj2/releases/download/v#{version}/__ARM64_FILE__"
-                binary "mycli-__VERSION__-macos-arm64/bin/mycli", target: "mycli"
-              end
+            on_arm do
+              sha256 "__ARM64_SHA__"
+              url "https://github.com/naga-nandyala/pj2/releases/download/v#{version}/__ARM64_FILE__"
+              binary "bin/mycli", target: "mycli"
+            end
 
-              on_intel do
-                sha256 "__X86_SHA__"
-                url "https://github.com/naga-nandyala/pj2/releases/download/v#{version}/__X86_FILE__"
-                binary "mycli-__VERSION__-macos-x86_64/bin/mycli", target: "mycli"
-              end
-
-              name "MyCLI App (venv bundle)"
+            on_intel do
+              sha256 "__X86_SHA__"
+              url "https://github.com/naga-nandyala/pj2/releases/download/v#{version}/__X86_FILE__"
+              binary "bin/mycli", target: "mycli"
+            end              name "MyCLI App (venv bundle)"
               desc "Azure-inspired CLI packaged with an embedded Python runtime"
               homepage "https://github.com/naga-nandyala/pj2"
 
