@@ -235,3 +235,4 @@ yarn-error.log*
 
 .build*
 *.tar.gz
+*temp*
