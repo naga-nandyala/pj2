@@ -164,8 +164,13 @@ jobs:
 
             depends_on macos: ">= :catalina"
 
-            pkg on_arm: "__ARM64_FILE__",
-                on_intel: "__X86_FILE__"
+            on_arm do
+              pkg "__ARM64_FILE__"
+            end
+
+            on_intel do
+              pkg "__X86_FILE__"
+            end
 
             uninstall pkgutil: "com.naga-nandyala.mycli"
 
