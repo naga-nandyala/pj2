@@ -92,13 +92,13 @@ def _run(
 
 def _detect_version() -> str:
     """Extract the package version, checking environment variable first, then __init__.py."""
-    
+
     # Check if VERSION environment variable is set (from GitHub workflow)
     env_version = os.environ.get("VERSION")
     if env_version:
         print(f"Using version from environment: {env_version}")
         return env_version
-    
+
     # Fall back to reading from __init__.py
     init_path = SRC_DIR / PACKAGE_NAME / "__init__.py"
     try:

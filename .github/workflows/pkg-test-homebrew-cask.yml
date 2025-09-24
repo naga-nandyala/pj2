@@ -210,7 +210,7 @@ jobs:
           
           # Test broker authentication if available (but don't fail if it doesn't work in CI)
           set +e
-          timeout 30 mycli login --force-broker 2>&1 | head -20 || true
+          mycli login --force-broker 2>&1 | head -20
           echo ""
           echo "Authentication test completed (errors expected in CI environment)"
           set -e
