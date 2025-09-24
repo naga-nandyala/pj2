@@ -38,6 +38,35 @@ jobs:
           brew update
           brew install --cask mycli-app-venv-pj2
 
+      - name: Inspect installation structure
+        run: |
+          echo "=== Homebrew Installation Inspection ==="
+          echo "1. Caskroom structure (depth 4):"
+          find /opt/homebrew/Caskroom/mycli-app-venv-pj2 -maxdepth 4 -type d 2>/dev/null | sort || echo "Caskroom not found"
+          
+          echo -e "\n2. Installed files structure:"
+          find /opt/homebrew/Caskroom/mycli-app-venv-pj2 -maxdepth 4 -type f 2>/dev/null | head -20 || echo "No files found"
+          
+          echo -e "\n3. Binary symlinks in /opt/homebrew/bin:"
+          ls -la /opt/homebrew/bin/mycli* 2>/dev/null || echo "No mycli symlinks found"
+          
+          echo -e "\n4. Symlink resolution:"
+          if [ -L /opt/homebrew/bin/mycli ]; then
+            echo "mycli symlink target: $(readlink /opt/homebrew/bin/mycli)"
+            echo "mycli resolved path: $(readlink -f /opt/homebrew/bin/mycli)"
+          else
+            echo "mycli is not a symlink"
+          fi
+          
+          echo -e "\n5. Python executable locations:"
+          find /opt/homebrew/Caskroom/mycli-app-venv-pj2 -name "python*" -type f -executable 2>/dev/null | head -10 || echo "No python executables found"
+          
+          echo -e "\n6. Launcher script content:"
+          if [ -f /opt/homebrew/bin/mycli ]; then
+            echo "First 10 lines of launcher script:"
+            head -10 /opt/homebrew/bin/mycli 2>/dev/null || echo "Cannot read launcher script"
+          fi
+
       - name: Validate cask installation
         run: |
           if ! command -v mycli >/dev/null; then

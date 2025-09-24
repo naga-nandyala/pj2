@@ -146,7 +146,9 @@ def _create_launchers(bin_dir: Path, venv_rel_path: str) -> None:
     venv_rel_path_win = venv_rel_path.replace("/", "\\\\")
     posix_launcher = f"""#!/usr/bin/env bash
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
+# Resolve symlinks to get the actual script location
+SCRIPT_PATH="$(readlink -f "${{BASH_SOURCE[0]}}")"
+SCRIPT_DIR="$(cd "$(dirname "${{SCRIPT_PATH}}")" && pwd)"
 APP_ROOT="$(cd "${{SCRIPT_DIR}}/.." && pwd)"
 VENV_DIR="${{APP_ROOT}}/{venv_rel_path}"
 
