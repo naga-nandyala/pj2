@@ -1,0 +1,100 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mycli-app-naga"
+dynamic = ["version"]
+description = "A simple CLI application similar to Azure CLI with Azure authentication capabilities"
+readme = "README.md"
+license = "MIT"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+keywords = ["cli", "azure", "authentication", "command-line", "tool"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Environment :: Console",
+    "Typing :: Typed",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "click>=8.0.0",
+    "colorama>=0.4.0",
+]
+
+[project.optional-dependencies]
+azure = [
+    "azure-identity>=1.12.0",
+    "azure-mgmt-core>=1.3.0", 
+    "azure-core>=1.24.0",
+    "msal>=1.20.0",
+]
+broker = [
+    "azure-identity>=1.12.0",
+    "azure-mgmt-core>=1.3.0", 
+    "azure-core>=1.24.0",
+    "msal[broker]>=1.20.0,<2",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+    "mypy>=0.990",
+    "setuptools>=45.0.0",
+    "wheel>=0.36.0",
+    "twine>=4.0.0",
+]
+
+[project.scripts]
+mycli = "mycli_app.cli:main"
+
+[project.urls]
+homepage = "https://github.com/naga-nandyala/mycli-app"
+repository = "https://github.com/naga-nandyala/mycli-app"
+documentation = "https://github.com/naga-nandyala/mycli-app#readme"
+issues = "https://github.com/naga-nandyala/mycli-app/issues"
+
+[tool.setuptools.dynamic]
+version = {attr = "mycli_app.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.package-data]
+mycli_app = ["config.yaml"]
+
+# Black configuration
+[tool.black]
+line-length = 120
+target-version = ['py38']
+include = '\.pyi?$'
+
+# MyPy configuration
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+# Pytest configuration
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
