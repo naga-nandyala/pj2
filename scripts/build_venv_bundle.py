@@ -212,7 +212,9 @@ def _create_tarball(staging_root: Path) -> Path:
     archive_path = staging_root.parent / f"{staging_root.name}.tar.gz"
     _ensure_clean([archive_path])
     with tarfile.open(archive_path, "w:gz") as tar:
-        tar.add(staging_root, arcname=staging_root.name)
+        # Add contents of staging_root directly to archive root (no version folder)
+        for item in staging_root.iterdir():
+            tar.add(item, arcname=item.name)
     return archive_path
 
 

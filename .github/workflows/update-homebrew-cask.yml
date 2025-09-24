@@ -126,13 +126,13 @@ jobs:
             on_arm do
               sha256 "__ARM64_SHA__"
               url "https://github.com/naga-nandyala/pj2/releases/download/v#{version}/__ARM64_FILE__"
-              binary "libexec/mycli-venv/bin/mycli", target: "mycli"
+              binary "bin/mycli", target: "mycli"
             end
 
             on_intel do
               sha256 "__X86_SHA__"
               url "https://github.com/naga-nandyala/pj2/releases/download/v#{version}/__X86_FILE__"
-              binary "libexec/mycli-venv/bin/mycli", target: "mycli"
+              binary "bin/mycli", target: "mycli"
             end
 
             name "MyCLI App (venv bundle)"
