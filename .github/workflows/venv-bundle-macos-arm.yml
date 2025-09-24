@@ -49,7 +49,6 @@ jobs:
         with:
           name: venv-${{ matrix.platform_tag }}
           path: |
-            dist/artifacts/mycli-${{ env.VERSION }}-${{ matrix.platform_tag }}/
             dist/artifacts/mycli-${{ env.VERSION }}-${{ matrix.platform_tag }}.tar.gz
             dist/artifacts/mycli-${{ env.VERSION }}-${{ matrix.platform_tag }}.tar.gz.sha256
 
