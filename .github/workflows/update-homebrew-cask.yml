@@ -92,13 +92,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: naga-nandyala/homebrew-mycli-app
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           persist-credentials: false
           path: homebrew-tap
 
       - name: Configure tap push credentials
         run: |
-          TAP_PAT="${{ secrets.HOMEBREW_TAP_TOKEN || secrets.GITHUB_TOKEN }}"
+          TAP_PAT="${{ secrets.HOMEBREW_TAP_TOKEN }}"
           if [ -z "$TAP_PAT" ]; then
             echo "HOMEBREW_TAP_TOKEN (or fallback GITHUB_TOKEN) is required to push to naga-nandyala/homebrew-mycli-app." >&2
             echo "Create a fine-grained personal access token with repo:write and add it as HOMEBREW_TAP_TOKEN." >&2
