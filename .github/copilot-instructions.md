@@ -1,0 +1,1 @@
+ignore content in _scratch* folders & */archive/* folders for github copilot purposes
