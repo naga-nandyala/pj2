@@ -2,43 +2,14 @@ name: Release virtualenv bundles (macOS)
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to release"
+        required: false
+        default: "1.0.0"
 
 jobs:
-  prepare:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Determine version
-        id: version
-        run: |
-          VERSION=$(python - <<'PY'
-          import ast
-          from pathlib import Path
-
-          init_path = Path("src/mycli_app/__init__.py")
-          source = init_path.read_text(encoding="utf-8")
-          module = ast.parse(source, filename=str(init_path))
-
-          for node in module.body:
-              if isinstance(node, ast.Assign):
-                  for target in node.targets:
-                      if isinstance(target, ast.Name) and target.id == "__version__":
-                          value = node.value
-                          if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                              print(value.value)
-                              raise SystemExit
-
-          raise SystemExit("Version not found")
-          PY
-          )
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
   build:
-    needs: prepare
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -50,7 +21,7 @@ jobs:
             arch: x86_64
             platform_tag: macos-x86_64
     env:
-      VERSION: ${{ needs.prepare.outputs.version }}
+      VERSION: ${{ inputs.version }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -83,10 +54,10 @@ jobs:
             dist/artifacts/mycli-${VERSION}-${{ matrix.platform_tag }}.tar.gz.sha256
 
   release:
-    needs: [prepare, build]
+    needs: build
     runs-on: ubuntu-latest
     env:
-      VERSION: ${{ needs.prepare.outputs.version }}
+      VERSION: ${{ inputs.version }}
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
