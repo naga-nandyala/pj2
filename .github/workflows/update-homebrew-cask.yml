@@ -141,6 +141,21 @@ jobs:
 
               depends_on macos: ">= :catalina"
 
+              # Fix the launcher script to use the venv's mycli directly
+              postflight do
+                launcher_path = "#{staged_path}/bin/mycli"
+                File.open(launcher_path, "w") do |f|
+                  f.write <<~EOF
+                    #!/usr/bin/env bash
+                    set -euo pipefail
+                    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+                    APP_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+                    exec "${APP_ROOT}/libexec/mycli-venv/bin/mycli" "$@"
+                  EOF
+                end
+                system_command "/bin/chmod", args: ["+x", launcher_path]
+              end
+
               caveats <<~EOS
                 Installs a portable Python virtual environment containing all dependencies.
 
