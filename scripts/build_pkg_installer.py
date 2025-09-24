@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
+import os
 import shutil
 import subprocess
 import sys
@@ -90,8 +91,15 @@ def _run(
 
 
 def _detect_version() -> str:
-    """Extract the package version without importing optional dependencies."""
-
+    """Extract the package version, checking environment variable first, then __init__.py."""
+    
+    # Check if VERSION environment variable is set (from GitHub workflow)
+    env_version = os.environ.get("VERSION")
+    if env_version:
+        print(f"Using version from environment: {env_version}")
+        return env_version
+    
+    # Fall back to reading from __init__.py
     init_path = SRC_DIR / PACKAGE_NAME / "__init__.py"
     try:
         source = init_path.read_text(encoding="utf-8")
@@ -105,6 +113,7 @@ def _detect_version() -> str:
                 if isinstance(target, ast.Name) and target.id == "__version__":
                     value = node.value
                     if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                        print(f"Using version from __init__.py: {value.value}")
                         return value.value
     raise BuildError("Could not determine version from package (__version__ missing)")
 
