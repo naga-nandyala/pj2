@@ -169,7 +169,7 @@ jobs:
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ env.VERSION }}-pkg
+          tag_name: v${{ env.VERSION }}
           name: v${{ env.VERSION }} (PKG Installer)
           generate_release_notes: true
           body: |
