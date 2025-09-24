@@ -47,7 +47,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: venv-${{ matrix.platform_tag }}
+          name: mycli-${{ env.VERSION }}-${{ matrix.platform_tag }}
           path: |
             dist/artifacts/mycli-${{ env.VERSION }}-${{ matrix.platform_tag }}.tar.gz
             dist/artifacts/mycli-${{ env.VERSION }}-${{ matrix.platform_tag }}.tar.gz.sha256
