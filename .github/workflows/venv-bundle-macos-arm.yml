@@ -72,10 +72,16 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release
-          cp release_artifacts/dist/artifacts/mycli-${VERSION}-macos-arm64.tar.gz release/
-          cp release_artifacts/dist/artifacts/mycli-${VERSION}-macos-arm64.tar.gz.sha256 release/
-          cp release_artifacts/dist/artifacts/mycli-${VERSION}-macos-x86_64.tar.gz release/
-          cp release_artifacts/dist/artifacts/mycli-${VERSION}-macos-x86_64.tar.gz.sha256 release/
+          for arch in macos-arm64 macos-x86_64; do
+            tar_path=$(find release_artifacts -type f -name "mycli-${VERSION}-${arch}.tar.gz" -print -quit)
+            sha_path=$(find release_artifacts -type f -name "mycli-${VERSION}-${arch}.tar.gz.sha256" -print -quit)
+            if [[ -z "$tar_path" || -z "$sha_path" ]]; then
+              echo "Missing artifacts for ${arch}" >&2
+              exit 1
+            fi
+            cp "$tar_path" release/
+            cp "$sha_path" release/
+          done
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
