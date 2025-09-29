@@ -114,10 +114,10 @@ jobs:
                   echo "=== Post-Build Diagnostics ==="
                   echo "Checking dist/pkg_artifacts directory:"
                   ls -la dist/pkg_artifacts/
-                  
+
                   echo "Finding all PKG files:"
                   find dist/ -name "*.pkg" -exec ls -lh {} \;
-                  
+
                   # Check what's inside the PKG
                   PKG_FILES=$(find dist/pkg_artifacts -name "*.pkg")
                   for pkg in $PKG_FILES; do
@@ -205,10 +205,10 @@ jobs:
 
                   echo "📋 Package File Info:"
                   file "$PKG_FILE"
-                  
+
                   echo "📋 Package Size:"
                   ls -lh "$PKG_FILE"
-                  
+
                   echo "✅ PKG validation completed successfully!"
 
     create-release:
