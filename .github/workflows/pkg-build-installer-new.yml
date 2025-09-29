@@ -7,6 +7,11 @@ on:
                 description: "Version to build (e.g., 2.0.0). If not provided, will use version from __init__.py"
                 required: false
                 type: string
+            extras:
+                description: "Optional dependency groups to install (e.g., 'broker'). Leave empty for no extras."
+                required: false
+                type: string
+                default: "broker"
             use_distribution:
                 description: "Use productbuild for distribution package with custom installer UI"
                 required: false
@@ -106,8 +111,15 @@ jobs:
                     echo "Building with pkgbuild (component package)"
                   fi
 
-                  # Run the build with verbose output
-                  python scripts/build_pkg_installer_new.py --platform-tag ${{ matrix.platform_tag }} $EXTRA_ARGS
+                  # Determine extras parameter
+                  EXTRAS="${{ inputs.extras }}"
+                  if [ -z "$EXTRAS" ]; then
+                    EXTRAS="broker"  # Default to broker for full PKG
+                  fi
+                  echo "Using extras: $EXTRAS"
+
+                  # Run the build with verbose output and specified extras
+                  python scripts/build_pkg_installer_new.py --platform-tag ${{ matrix.platform_tag }} --extras "$EXTRAS" $EXTRA_ARGS
 
             - name: Debug PKG contents
               run: |
@@ -299,6 +311,7 @@ jobs:
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "## Configuration" >> $GITHUB_STEP_SUMMARY
                   echo "- **Version**: \`${{ inputs.version || 'auto-detected' }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Extras**: \`${{ inputs.extras || 'broker (default)' }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- **Build Method**: ${{ inputs.use_distribution && 'productbuild (distribution)' || 'pkgbuild (component)' }}" >> $GITHUB_STEP_SUMMARY
                   echo "- **Script Used**: \`build_pkg_installer_new.py\`" >> $GITHUB_STEP_SUMMARY
                   echo "- **Create Release**: ${{ inputs.create_release }}" >> $GITHUB_STEP_SUMMARY
