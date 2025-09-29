@@ -109,19 +109,53 @@ jobs:
                   # Run the build with verbose output
                   python scripts/build_pkg_installer_new.py --platform-tag ${{ matrix.platform_tag }} $EXTRA_ARGS
 
+            - name: Debug PKG contents
+              run: |
+                  echo "=== Post-Build Diagnostics ==="
+                  echo "Checking dist/pkg_artifacts directory:"
+                  ls -la dist/pkg_artifacts/
+                  
+                  echo "Finding all PKG files:"
+                  find dist/ -name "*.pkg" -exec ls -lh {} \;
+                  
+                  # Check what's inside the PKG
+                  PKG_FILES=$(find dist/pkg_artifacts -name "*.pkg")
+                  for pkg in $PKG_FILES; do
+                    echo "=== Analyzing $pkg ==="
+                    echo "File size: $(ls -lh "$pkg" | awk '{print $5}')"
+                    echo "Package contents:"
+                    pkgutil --payload-files "$pkg" | head -10
+                    echo "Package structure:"
+                    pkgutil --payload-files "$pkg" | wc -l
+                    echo "First few files in package:"
+                    pkgutil --payload-files "$pkg" | head -5
+                  done
+
             - name: Verify .pkg creation
               working-directory: dist/pkg_artifacts
               run: |
-                  VERSION="${{ env.VERSION }}"
+                  # Get version from environment or detect it
+                  if [ -n "${{ inputs.version }}" ]; then
+                    VERSION="${{ inputs.version }}"
+                  else
+                    VERSION=$(python -c "import sys; sys.path.insert(0, '../src'); from mycli_app import __version__; print(__version__)")
+                  fi
+
                   PKG_FILE="mycli-${VERSION}-${{ matrix.platform_tag }}.pkg"
                   SHA_FILE="${PKG_FILE}.sha256"
 
                   echo "=== PKG Build Verification ==="
+                  echo "Looking for: $PKG_FILE"
+                  echo "Available files:"
+                  ls -la
+
                   if [ -f "$PKG_FILE" ]; then
                     echo "✅ PKG file created: $PKG_FILE"
                     echo "📦 Size: $(du -h "$PKG_FILE" | cut -f1)"
                   else
                     echo "❌ PKG file missing: $PKG_FILE"
+                    echo "Let's check what files were actually created:"
+                    find . -name "*.pkg" -o -name "*.sha256"
                     exit 1
                   fi
 
@@ -144,18 +178,38 @@ jobs:
 
             - name: Test PKG installation (dry run)
               run: |
-                  VERSION="${{ env.VERSION }}"
+                  # Get version from environment or detect it
+                  if [ -n "${{ inputs.version }}" ]; then
+                    VERSION="${{ inputs.version }}"
+                  else
+                    VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print(__version__)")
+                  fi
+
                   PKG_FILE="dist/pkg_artifacts/mycli-${VERSION}-${{ matrix.platform_tag }}.pkg"
 
                   echo "=== PKG Installation Test (Dry Run) ==="
-                  echo "📋 PKG Info:"
+                  echo "Testing PKG file: $PKG_FILE"
+
+                  if [ ! -f "$PKG_FILE" ]; then
+                    echo "❌ PKG file not found: $PKG_FILE"
+                    echo "Available files in dist/pkg_artifacts:"
+                    ls -la dist/pkg_artifacts/
+                    exit 1
+                  fi
+
+                  echo "📋 PKG Signature Check:"
                   pkgutil --check-signature "$PKG_FILE" || echo "⚠️  Package not signed (expected for development)"
 
-                  echo "📋 Package Contents:"
+                  echo "📋 Package Contents Preview:"
                   pkgutil --payload-files "$PKG_FILE" | head -20
 
-                  echo "📋 Package Metadata:"
-                  pkgutil --pkg-info-plist "$PKG_FILE"
+                  echo "📋 Package File Info:"
+                  file "$PKG_FILE"
+                  
+                  echo "📋 Package Size:"
+                  ls -lh "$PKG_FILE"
+                  
+                  echo "✅ PKG validation completed successfully!"
 
     create-release:
         name: Create GitHub Release
