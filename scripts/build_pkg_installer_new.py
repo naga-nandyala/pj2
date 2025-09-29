@@ -143,6 +143,16 @@ def _create_virtualenv(venv_dir: Path) -> Path:
     _run(cmd)
     python_path = _virtualenv_python(venv_dir)
     _run([str(python_path), "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
+    
+    # Debug: Check virtual environment size after creation
+    if venv_dir.exists():
+        try:
+            import subprocess
+            result = subprocess.run(['du', '-sh', str(venv_dir)], capture_output=True, text=True)
+            print(f"Virtual environment size after creation: {result.stdout.strip()}")
+        except Exception as e:
+            print(f"Could not get virtual environment size: {e}")
+    
     return python_path
 
 
@@ -150,7 +160,22 @@ def _install_project(python_path: Path, extras: Optional[str]) -> None:
     project_spec = str(PROJECT_ROOT)
     if extras:
         project_spec += f"[{extras}]"
+    print(f"Installing project: {project_spec}")
     _run([str(python_path), "-m", "pip", "install", project_spec])
+    
+    # Debug: Check virtual environment size after project installation
+    venv_dir = python_path.parent.parent  # python_path is venv/bin/python, so go up two levels
+    if venv_dir.exists():
+        try:
+            import subprocess
+            result = subprocess.run(['du', '-sh', str(venv_dir)], capture_output=True, text=True)
+            print(f"Virtual environment size after project installation: {result.stdout.strip()}")
+            
+            # Also count files
+            file_count = subprocess.run(['find', str(venv_dir), '-type', 'f'], capture_output=True, text=True)
+            print(f"Total files in virtual environment: {len(file_count.stdout.splitlines())}")
+        except Exception as e:
+            print(f"Could not get virtual environment stats: {e}")
 
 
 def _prune_bytecode(root: Path) -> None:
@@ -209,10 +234,41 @@ def _create_package_root(venv_source: Path, *, platform_tag: str, staging_dir: P
     bin_dir.mkdir(parents=True, exist_ok=True)
     libexec_dir.mkdir(parents=True, exist_ok=True)
 
+    # Debug: Check source virtual environment before copying
+    print(f"Source virtual environment: {venv_source}")
+    if venv_source.exists():
+        try:
+            import subprocess
+            result = subprocess.run(['du', '-sh', str(venv_source)], capture_output=True, text=True)
+            print(f"Source virtual environment size: {result.stdout.strip()}")
+            
+            file_count = subprocess.run(['find', str(venv_source), '-type', 'f'], capture_output=True, text=True)
+            print(f"Source virtual environment file count: {len(file_count.stdout.splitlines())}")
+        except Exception as e:
+            print(f"Could not get source venv stats: {e}")
+    else:
+        print(f"WARNING: Source virtual environment does not exist at {venv_source}")
+
     # Copy the virtual environment
     print(f"Copying virtual environment to {venv_target}")
     shutil.copytree(venv_source, venv_target)
     _prune_bytecode(venv_target)
+
+    # Debug: Check staged files after copying
+    if venv_target.exists():
+        try:
+            import subprocess
+            result = subprocess.run(['du', '-sh', str(venv_target)], capture_output=True, text=True)
+            print(f"Staged virtual environment size: {result.stdout.strip()}")
+            
+            file_count = subprocess.run(['find', str(venv_target), '-type', 'f'], capture_output=True, text=True)
+            print(f"Staged virtual environment file count: {len(file_count.stdout.splitlines())}")
+            
+            # Show overall package root size
+            pkg_result = subprocess.run(['du', '-sh', str(pkg_root)], capture_output=True, text=True)
+            print(f"Total package root size: {pkg_result.stdout.strip()}")
+        except Exception as e:
+            print(f"Could not get staged stats: {e}")
 
     # Create the launcher script
     print("Creating system launcher script")
@@ -252,6 +308,22 @@ def _create_pkg_installer(
     component_pkg_name = f"{APP_NAME}-component-{version}-{platform_tag}.pkg"
     component_pkg_path = staging_dir / component_pkg_name
 
+    # Debug: Show what we're packaging before pkgbuild
+    print(f"Packaging contents from: {pkg_root}")
+    try:
+        import subprocess
+        result = subprocess.run(['du', '-sh', str(pkg_root)], capture_output=True, text=True)
+        print(f"Package root total size: {result.stdout.strip()}")
+        
+        file_count = subprocess.run(['find', str(pkg_root), '-type', 'f'], capture_output=True, text=True)
+        print(f"Package root file count: {len(file_count.stdout.splitlines())}")
+        
+        # Show directory structure
+        tree_result = subprocess.run(['find', str(pkg_root), '-type', 'd'], capture_output=True, text=True)
+        print(f"Package root directories:\n{tree_result.stdout}")
+    except Exception as e:
+        print(f"Could not analyze package root: {e}")
+
     print(f"Creating component package: {component_pkg_path}")
     cmd = [
         "pkgbuild",
@@ -267,9 +339,33 @@ def _create_pkg_installer(
     ]
     _run(cmd)
 
-    # Verify the component package was created
+    # Verify the component package was created and check its size
     if not component_pkg_path.exists():
         raise BuildError(f"Component package creation failed: {component_pkg_path} does not exist")
+    
+    # Debug: Check component package size
+    try:
+        import subprocess
+        import os
+        pkg_size = os.path.getsize(component_pkg_path)
+        print(f"Component package size: {pkg_size} bytes ({pkg_size / 1024 / 1024:.2f} MB)")
+        
+        # Use pkgutil to analyze the component package
+        payload_result = subprocess.run(['pkgutil', '--payload-files', str(component_pkg_path)], 
+                                      capture_output=True, text=True)
+        if payload_result.returncode == 0:
+            payload_files = payload_result.stdout.strip().split('\n') if payload_result.stdout.strip() else []
+            print(f"Component package contains {len(payload_files)} files")
+            if len(payload_files) <= 20:  # Show first few files if not too many
+                print("Component package files:")
+                for file in payload_files[:10]:
+                    print(f"  {file}")
+                if len(payload_files) > 10:
+                    print(f"  ... and {len(payload_files) - 10} more files")
+        else:
+            print(f"Could not analyze component package payload: {payload_result.stderr}")
+    except Exception as e:
+        print(f"Could not get component package stats: {e}")
 
     if use_distribution:
         # Step 2: Create distribution package with productbuild
@@ -286,12 +382,37 @@ def _create_pkg_installer(
         ]
         _run(cmd)
 
+        # Debug: Check final distribution package
         print(f"Created distribution package: {final_pkg_path} ({final_pkg_path.stat().st_size / (1024*1024):.1f} MB)")
+        try:
+            import subprocess
+            payload_result = subprocess.run(['pkgutil', '--payload-files', str(final_pkg_path)], 
+                                          capture_output=True, text=True)
+            if payload_result.returncode == 0:
+                payload_files = payload_result.stdout.strip().split('\n') if payload_result.stdout.strip() else []
+                print(f"Final distribution package contains {len(payload_files)} files")
+            else:
+                print(f"Could not analyze final package payload: {payload_result.stderr}")
+        except Exception as e:
+            print(f"Could not get final package stats: {e}")
     else:
         # Use simple component package as final package
         print(f"Moving component package to final location: {final_pkg_path}")
         shutil.move(str(component_pkg_path), str(final_pkg_path))
+        
+        # Debug: Check final simple package
         print(f"Created simple package: {final_pkg_path} ({final_pkg_path.stat().st_size / (1024*1024):.1f} MB)")
+        try:
+            import subprocess
+            payload_result = subprocess.run(['pkgutil', '--payload-files', str(final_pkg_path)], 
+                                          capture_output=True, text=True)
+            if payload_result.returncode == 0:
+                payload_files = payload_result.stdout.strip().split('\n') if payload_result.stdout.strip() else []
+                print(f"Final simple package contains {len(payload_files)} files")
+            else:
+                print(f"Could not analyze final package payload: {payload_result.stderr}")
+        except Exception as e:
+            print(f"Could not get final package stats: {e}")
 
     # Verify the final package was created
     if not final_pkg_path.exists():
