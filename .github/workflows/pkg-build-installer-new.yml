@@ -53,15 +53,51 @@ jobs:
                     echo "Using version from __init__.py: $VERSION"
                   fi
 
-            - name: Install build dependencies
+            - name: Install build dependencies and tools
               run: |
+                  # Install Python dependencies
                   python -m pip install --upgrade pip setuptools wheel
+
+                  # Verify macOS build tools are available
+                  echo "=== Checking macOS Build Tools ==="
+                  which pkgbuild || echo "❌ pkgbuild not found"
+                  which productbuild || echo "❌ productbuild not found"
+                  xcode-select --print-path || echo "❌ Xcode Command Line Tools not found"
+
+                  # Install Xcode Command Line Tools if missing
+                  if ! which pkgbuild > /dev/null; then
+                    echo "Installing Xcode Command Line Tools..."
+                    xcode-select --install || true
+                    # Wait for installation
+                    sleep 30
+                  fi
 
             - name: Create dist directory
               run: mkdir -p dist/pkg_artifacts
 
             - name: Build PKG installer (Enhanced)
               run: |
+                  echo "=== Build Environment Check ==="
+                  pwd
+                  ls -la scripts/
+                  python --version
+
+                  echo "=== Python Path Check ==="
+                  python -c "import sys; print('Python path:', sys.path)"
+
+                  echo "=== Package Version Check ==="
+                  if [ -n "${{ inputs.version }}" ]; then
+                    echo "Using provided version: ${{ inputs.version }}"
+                  else
+                    echo "Attempting to detect version from package..."
+                    python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print('Detected version:', __version__)" || echo "❌ Version detection failed"
+                  fi
+
+                  echo "=== Build Tools Check ==="
+                  which pkgbuild || (echo "❌ pkgbuild not found"; exit 1)
+                  which productbuild || echo "⚠️ productbuild not found (only needed for distribution builds)"
+
+                  echo "=== Starting PKG Build ==="
                   EXTRA_ARGS=""
                   if [ "${{ inputs.use_distribution }}" = "true" ]; then
                     EXTRA_ARGS="--use-distribution"
@@ -69,6 +105,8 @@ jobs:
                   else
                     echo "Building with pkgbuild (component package)"
                   fi
+
+                  # Run the build with verbose output
                   python scripts/build_pkg_installer_new.py --platform-tag ${{ matrix.platform_tag }} $EXTRA_ARGS
 
             - name: Verify .pkg creation
