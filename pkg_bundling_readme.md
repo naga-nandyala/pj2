@@ -91,11 +91,27 @@ def _stage_pkg_contents(venv_source: Path, *, staging_root: Path) -> None:
 - Sets proper file permissions and ownership
 
 #### Phase 4: PKG Creation
+
 ```python
-def _build_pkg(staging_root: Path, *, platform_tag: str, artifacts_dir: Path) -> Path:
+def _create_pkg_installer(pkg_root: Path, *, version: str, platform_tag: str, artifacts_dir: Path, staging_dir: Path, use_distribution: bool = False) -> Path:
 ```
-- Uses `pkgbuild` to create component package
-- Uses `productbuild` to create distribution package
+
+**Two Build Methods Available:**
+
+1. **Simple Build (Default)**: Uses `pkgbuild` only
+   - Creates basic component package
+   - Suitable for Homebrew Cask distribution
+   - Faster build process
+
+2. **Distribution Build**: Uses `pkgbuild` + `productbuild`
+   - Creates component package first with `pkgbuild`
+   - Uses `productbuild` to create professional distribution package
+   - Enables custom installer UI and advanced features
+   - Better user experience for direct distribution
+
+**Build Process:**
+- Step 1: `pkgbuild` creates component package
+- Step 2: `productbuild` creates distribution package (if `--use-distribution` flag used)
 - Generates proper package metadata and identifiers
 - Creates signed installer (if certificates available)
 
@@ -394,22 +410,83 @@ def _stage_pkg_contents(venv_source: Path, *, staging_root: Path) -> None:
     launcher_path.chmod(0o755)
 ```
 
-#### PKG Creation with `pkgbuild`
+#### PKG Creation with Two-Step Process
+
 ```python
-def _build_pkg(staging_root: Path, *, platform_tag: str, artifacts_dir: Path) -> Path:
-    pkg_name = f"mycli-{version}-{platform_tag}.pkg"
-    pkg_path = artifacts_dir / pkg_name
+def _create_pkg_installer(pkg_root: Path, *, version: str, platform_tag: str, artifacts_dir: Path, staging_dir: Path, use_distribution: bool = False) -> Path:
+```
+
+**Step 1: Component Package Creation**
+```python
+# Create component package with pkgbuild
+component_pkg_name = f"{APP_NAME}-component-{version}-{platform_tag}.pkg"
+component_pkg_path = staging_dir / component_pkg_name
+
+cmd = [
+    "pkgbuild",
+    "--root", str(pkg_root),
+    "--identifier", PKG_IDENTIFIER,
+    "--version", version,
+    "--install-location", "/usr/local",
+    str(component_pkg_path),
+]
+_run(cmd)
+```
+
+**Step 2: Distribution Package Creation (Optional)**
+```python
+if use_distribution:
+    # Create distribution package with productbuild
+    distribution_xml_path = staging_dir / "distribution.xml"
     
-    # Build component package
     cmd = [
-        "pkgbuild",
-        "--root", str(staging_root),
-        "--identifier", "com.naga-nandyala.mycli",
-        "--version", version,
-        "--install-location", "/",
-        str(pkg_path)
+        "productbuild",
+        "--distribution", str(distribution_xml_path),
+        "--package-path", str(staging_dir),
+        str(final_pkg_path),
     ]
-    _run(cmd, cwd=artifacts_dir)
+    _run(cmd)
+else:
+    # Use simple component package as final package
+    shutil.move(str(component_pkg_path), str(final_pkg_path))
+```
+
+#### Distribution XML Structure
+
+When using `--use-distribution`, the build creates a distribution XML file that defines the installer behavior:
+
+```python
+def _create_distribution_xml(staging_dir: Path, *, version: str, platform_tag: str) -> Path:
+    """Create distribution XML for productbuild with proper package references."""
+    
+    # Create XML structure for productbuild
+    root = ET.Element("installer-gui-script", minSpecVersion="2")
+    ET.SubElement(root, "title").text = f"MyCLI {version}"
+    
+    # Choice definition for installer UI
+    choice_elem = ET.SubElement(root, "choice", id="default", title="MyCLI", visible="false")
+    choice_elem.set("description", f"Install MyCLI {version} command-line application")
+    
+    # Package reference pointing to component package
+    pkg_ref = ET.SubElement(root, "pkg-ref", id="com.naga-nandyala.mycli", version=version)
+    pkg_ref.text = f"{APP_NAME}-component-{version}-{platform_tag}.pkg"
+```
+
+**Generated Distribution XML Example:**
+```xml
+<?xml version='1.0' encoding='utf-8'?>
+<installer-gui-script minSpecVersion="2">
+  <title>MyCLI 2.0.0</title>
+  <choices-outline>
+    <line choice="default">
+      <line choice="com.naga-nandyala.mycli"/>
+    </line>
+  </choices-outline>
+  <choice id="default" title="MyCLI" visible="false" description="Install MyCLI 2.0.0 command-line application">
+    <pkg-ref id="com.naga-nandyala.mycli"/>
+  </choice>
+  <pkg-ref id="com.naga-nandyala.mycli" version="2.0.0" installKBytes="100000">mycli-component-2.0.0-macos-arm64.pkg</pkg-ref>
+</installer-gui-script>
 ```
 
 ### Cross-Platform Considerations
@@ -456,8 +533,11 @@ fi
 ### Local Development Build
 
 ```bash
-# Build for current platform
+# Simple build (default) - uses pkgbuild only
 python scripts/build_pkg_installer.py --platform-tag macos-arm64
+
+# Distribution build - uses pkgbuild + productbuild for enhanced installer
+python scripts/build_pkg_installer.py --platform-tag macos-arm64 --use-distribution
 
 # Build with specific extras
 python scripts/build_pkg_installer.py --extras broker --platform-tag macos-arm64
@@ -465,9 +545,22 @@ python scripts/build_pkg_installer.py --extras broker --platform-tag macos-arm64
 # Build without extras  
 python scripts/build_pkg_installer.py --extras "" --platform-tag macos-arm64
 
+# Distribution build with custom extras
+python scripts/build_pkg_installer.py --extras broker --platform-tag macos-arm64 --use-distribution
+
 # Override version (useful for testing)
 VERSION=2.1.0-beta python scripts/build_pkg_installer.py --platform-tag macos-arm64
+
+# Test distribution package with version override
+VERSION=2.1.0-beta python scripts/build_pkg_installer.py --platform-tag macos-arm64 --use-distribution
 ```
+
+**Build Method Comparison:**
+
+| Method | Command | Tools Used | Output | Use Case |
+|--------|---------|------------|---------|----------|
+| Simple | `--platform-tag macos-arm64` | `pkgbuild` | Component PKG | Homebrew Cask distribution |
+| Distribution | `--platform-tag macos-arm64 --use-distribution` | `pkgbuild` + `productbuild` | Distribution PKG | Direct user distribution |
 
 ### Manual Release Process
 
@@ -531,6 +624,8 @@ ERROR: Could not determine version from package (__version__ missing)
 **Solution**: Verify `__version__ = "x.y.z"` exists in `src/mycli_app/__init__.py`
 
 #### **PKG Build Failed**
+
+**Component Package Build Issues:**
 ```
 ERROR: Command failed: pkgbuild --root ...
 ```
@@ -538,6 +633,25 @@ ERROR: Command failed: pkgbuild --root ...
 - Ensure running on macOS (pkgbuild not available on other platforms)
 - Check file permissions in staging directory
 - Verify PKG identifier is valid
+
+**Distribution Package Build Issues:**
+```
+ERROR: Command failed: productbuild --distribution ...
+```
+**Solutions**:
+- Verify `--use-distribution` flag was used to generate distribution.xml
+- Check that component package was created successfully first
+- Ensure productbuild is available (part of Xcode Command Line Tools)
+- Verify distribution XML syntax is valid
+
+**Distribution XML Issues:**
+```
+ERROR: unable to build chain to self-signed root for signer
+```
+**Solutions**:
+- Distribution build works without code signing for development
+- For signed packages, ensure proper developer certificates are installed
+- Use simple build method for Homebrew Cask (doesn't require signing)
 
 #### **Dependency Installation Failed**
 ```
