@@ -43,7 +43,7 @@ jobs:
           - platform_tag: macos-x86_64
             runner: macos-13
             arch: x86_64
-    
+
     env:
       VERSION: ${{ inputs.version }}
 
@@ -152,17 +152,26 @@ jobs:
             pkgutil --payload-files "$pkg" | head -5
             
             echo "=== Checking Azure Dependencies ==="
-            # Extract and check if Azure packages are included
-            TMP_DIR=$(mktemp -d)
-            cd "$TMP_DIR"
-            pkgutil --expand-full "$pkg" extracted/
-            echo "Checking for Azure packages in site-packages:"
-            find extracted/ -name "azure*" -type d | head -5
-            find extracted/ -name "msal*" -type d | head -5
-            echo "Python packages count:"
-            find extracted/ -path "*/site-packages/*" -name "*.dist-info" | wc -l
-            cd - > /dev/null
-            rm -rf "$TMP_DIR"
+            # Check if Azure packages are included by examining the payload
+            echo "Checking for Azure packages in package payload:"
+            if pkgutil --payload-files "$pkg" | grep -q "azure"; then
+              echo "✅ Azure packages found in payload"
+              echo "Azure package files:"
+              pkgutil --payload-files "$pkg" | grep "azure" | head -3
+            else
+              echo "❌ No Azure packages found in payload"
+            fi
+            
+            if pkgutil --payload-files "$pkg" | grep -q "msal"; then
+              echo "✅ MSAL packages found in payload"
+              echo "MSAL package files:"
+              pkgutil --payload-files "$pkg" | grep "msal" | head -3
+            else
+              echo "❌ No MSAL packages found in payload"
+            fi
+            
+            echo "Total Python packages in payload:"
+            pkgutil --payload-files "$pkg" | grep -c "site-packages" || echo "0"
           done
 
       - name: Verify .pkg creation
