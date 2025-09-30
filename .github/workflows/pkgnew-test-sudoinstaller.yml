@@ -7,13 +7,6 @@ on:
         description: "GitHub release tag to test (e.g. v4.0.0)"
         required: true
         type: string
-      architecture:
-        description: "Architecture to test"
-        required: true
-        type: choice
-        options:
-          - arm64
-          - x86_64
 
 jobs:
   test-pkg-installation:
@@ -52,11 +45,12 @@ jobs:
           echo "=== Download and Install PKG ==="
 
           RELEASE_TAG="${{ github.event.inputs.release_tag }}"
-          ARCH="${{ github.event.inputs.architecture }}"
+          ARCH="${{ matrix.arch }}"
           PKG_FILENAME="mycli-${RELEASE_TAG#v}-macos-${ARCH}.pkg"
 
           echo "Downloading PKG: $PKG_FILENAME"
           echo "From release: $RELEASE_TAG"
+          echo "Architecture: $ARCH"
 
           # Download PKG file from GitHub releases
           curl -L -o "$PKG_FILENAME" \
