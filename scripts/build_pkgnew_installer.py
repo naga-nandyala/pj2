@@ -7,7 +7,7 @@ the complexity of symlink management that comes with .tar.gz Homebrew Casks.
 
 The installer includes:
 1. Complete Python virtual environment with all dependencies
-2. Direct installation to /usr/local/bin and /usr/local/libexec
+2. Direct installation to /usr/local/bin and /usr/local/microsoft
 3. Native macOS installer experience
 4. Proper integration with Homebrew Cask using 'pkg' directive
 5. Optional productbuild support for enhanced installers
@@ -25,8 +25,8 @@ Installation layout on target system:
 /usr/local/
 ├── bin/
 │   └── mycli                    # Direct executable (no symlinks)
-└── libexec/
-    └── mycli-venv/             # Complete Python environment
+└── microsoft/
+    └── mycli/                   # Complete Python environment
         ├── bin/python3
         └── lib/python3.12/site-packages/
 ```
@@ -57,7 +57,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
 PACKAGE_NAME = "mycli_app"
 APP_NAME = "mycli"
-VENV_NAME = f"{APP_NAME}-venv"
+APP_VERSION = "0.2.1"
+INSTALL_PREFIX = "microsoft"  # PowerShell-style: /usr/local/microsoft/
+INSTALL_DIR = f"{INSTALL_PREFIX}/{APP_NAME}"  # Results in: microsoft/mycli (no version suffix for simplicity)
 PKG_IDENTIFIER = "com.naga-nandyala.mycli"
 
 
@@ -180,7 +182,7 @@ def _create_system_launcher(bin_dir: Path) -> None:
 set -euo pipefail
 
 # Simple direct path - no symlink resolution needed
-VENV_DIR="/usr/local/libexec/{VENV_NAME}"
+VENV_DIR="/usr/local/{INSTALL_DIR}"
 PYTHON="${{VENV_DIR}}/bin/python3"
 
 # Verify installation integrity
@@ -204,12 +206,12 @@ def _create_package_root(venv_source: Path, *, platform_tag: str, staging_dir: P
     # Create the installation structure that mirrors /usr/local
     pkg_root = staging_dir / "pkg_root"
     bin_dir = pkg_root / "bin"
-    libexec_dir = pkg_root / "libexec"
-    venv_target = libexec_dir / VENV_NAME
+    install_prefix_dir = pkg_root / INSTALL_PREFIX
+    venv_target = install_prefix_dir / APP_NAME
 
     _ensure_clean([pkg_root])
     bin_dir.mkdir(parents=True, exist_ok=True)
-    libexec_dir.mkdir(parents=True, exist_ok=True)
+    install_prefix_dir.mkdir(parents=True, exist_ok=True)
 
     # Copy the virtual environment
     print(f"Copying virtual environment to {venv_target}")
@@ -435,7 +437,7 @@ def build_pkg_installer(*, extras: Optional[str], platform_tag: str, use_distrib
     print("Installation Details:")
     print("  Target:      /usr/local/")
     print(f"  Executable:  /usr/local/bin/{APP_NAME}")
-    print(f"  Runtime:     /usr/local/libexec/{VENV_NAME}/")
+    print(f"  Runtime:     /usr/local/{INSTALL_DIR}/")
     print()
     print("Next steps:")
     print("  1. Test locally: sudo installer -pkg <pkg-file> -target /")

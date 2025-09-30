@@ -162,7 +162,7 @@ jobs:
                     caveats <<~EOS
                       MyCLI installs directly to system locations:
                         • Executable: /usr/local/bin/mycli
-                        • Runtime: /usr/local/libexec/mycli-venv/
+                        • Runtime: /usr/local/microsoft/mycli/
 
                       No symlinks or complex path resolution required.
 
@@ -173,7 +173,7 @@ jobs:
 
                       To uninstall manually:
                         sudo rm -f /usr/local/bin/mycli
-                        sudo rm -rf /usr/local/libexec/mycli-venv
+                        sudo rm -rf /usr/local/microsoft/mycli
 
                       For the venv bundle version instead:
                         brew install --cask naga-nandyala/mycli-app/mycli-app-venv-pj2

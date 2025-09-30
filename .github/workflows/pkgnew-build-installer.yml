@@ -311,7 +311,7 @@ jobs:
             ## Build Details
             - **Build Method**: ${{ inputs.use_distribution && 'productbuild (distribution)' || 'pkgbuild (component)' }}
             - **Python Version**: ${{ env.PYTHON_VERSION }}
-            - **Installation Location**: `/usr/local/bin/mycli` → `/usr/local/libexec/mycli-venv/`
+            - **Installation Location**: `/usr/local/bin/mycli` → `/usr/local/microsoft/mycli/`
 
             ## Verification
             Verify package integrity using the provided SHA256 checksums.

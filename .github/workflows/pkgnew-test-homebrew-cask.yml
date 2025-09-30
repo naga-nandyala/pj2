@@ -44,7 +44,7 @@ jobs:
 
                   # Remove any manual installations
                   sudo rm -f /usr/local/bin/mycli 2>/dev/null || true
-                  sudo rm -rf /usr/local/libexec/mycli-venv 2>/dev/null || true
+                  sudo rm -rf /usr/local/microsoft/mycli 2>/dev/null || true
 
                   # Verify cleanup
                   if command -v mycli >/dev/null 2>&1; then
@@ -86,23 +86,23 @@ jobs:
 
                   echo ""
                   echo "2. Runtime environment:"
-                  if [ -d /usr/local/libexec/mycli-venv ]; then
-                    echo "✅ Runtime found at /usr/local/libexec/mycli-venv"
-                    echo "   Size: $(du -sh /usr/local/libexec/mycli-venv | cut -f1)"
+                  if [ -d /usr/local/microsoft/mycli ]; then
+                    echo "✅ Runtime found at /usr/local/microsoft/mycli"
+                    echo "   Size: $(du -sh /usr/local/microsoft/mycli | cut -f1)"
                     echo "   Python executable:"
-                    ls -la /usr/local/libexec/mycli-venv/bin/python* 2>/dev/null | head -3
+                    ls -la /usr/local/microsoft/mycli/bin/python* 2>/dev/null | head -3
                     echo ""
                     echo "   Directory structure (2 levels):"
-                    tree /usr/local/libexec/mycli-venv -L 2 2>/dev/null || find /usr/local/libexec/mycli-venv -maxdepth 2 -type d | head -20
+                    tree /usr/local/microsoft/mycli -L 2 2>/dev/null || find /usr/local/microsoft/mycli -maxdepth 2 -type d | head -20
                     echo ""
                     echo "   Key subdirectories:"
-                    echo "   - bin/: $(ls /usr/local/libexec/mycli-venv/bin/ | wc -l) files"
-                    echo "   - lib/: $(ls /usr/local/libexec/mycli-venv/lib/ 2>/dev/null | wc -l) items"
-                    if [ -d /usr/local/libexec/mycli-venv/lib/python3.12/site-packages ]; then
-                      echo "   - site-packages/: $(ls /usr/local/libexec/mycli-venv/lib/python3.12/site-packages/ | wc -l) packages"
+                    echo "   - bin/: $(ls /usr/local/microsoft/mycli/bin/ | wc -l) files"
+                    echo "   - lib/: $(ls /usr/local/microsoft/mycli/lib/ 2>/dev/null | wc -l) items"
+                    if [ -d /usr/local/microsoft/mycli/lib/python3.12/site-packages ]; then
+                      echo "   - site-packages/: $(ls /usr/local/microsoft/mycli/lib/python3.12/site-packages/ | wc -l) packages"
                     fi
                   else
-                    echo "❌ Runtime environment NOT found at /usr/local/libexec/mycli-venv"
+                    echo "❌ Runtime environment NOT found at /usr/local/microsoft/mycli"
                     exit 1
                   fi
 
@@ -127,15 +127,15 @@ jobs:
                   echo "├── bin/"
                   ls -la /usr/local/bin/mycli* 2>/dev/null || echo "   (no mycli files in bin/)"
                   echo "└── libexec/"
-                  if [ -d /usr/local/libexec/mycli-venv ]; then
+                  if [ -d /usr/local/microsoft/mycli ]; then
                     echo "    └── mycli-venv/"
-                    echo "        ├── bin/ ($(ls /usr/local/libexec/mycli-venv/bin/ | wc -l) files)"
+                    echo "        ├── bin/ ($(ls /usr/local/microsoft/mycli/bin/ | wc -l) files)"
                     echo "        ├── lib/"
-                    if [ -d /usr/local/libexec/mycli-venv/lib/python3.12 ]; then
+                    if [ -d /usr/local/microsoft/mycli/lib/python3.12 ]; then
                       echo "        │   └── python3.12/"
-                      echo "        │       └── site-packages/ ($(ls /usr/local/libexec/mycli-venv/lib/python3.12/site-packages/ | wc -l) packages)"
+                      echo "        │       └── site-packages/ ($(ls /usr/local/microsoft/mycli/lib/python3.12/site-packages/ | wc -l) packages)"
                     fi
-                    echo "        └── other files: $(find /usr/local/libexec/mycli-venv -maxdepth 1 -type f | wc -l)"
+                    echo "        └── other files: $(find /usr/local/microsoft/mycli -maxdepth 1 -type f | wc -l)"
                   else
                     echo "   (no mycli-venv directory)"
                   fi
@@ -158,7 +158,7 @@ jobs:
 
                   echo ""
                   echo "4. Python module execution (direct):"
-                  /usr/local/libexec/mycli-venv/bin/python3 -m mycli_app --version
+                  /usr/local/microsoft/mycli/bin/python3 -m mycli_app --version
 
             - name: Test launcher script robustness
               run: |
@@ -176,7 +176,7 @@ jobs:
                   echo "3. Python resolution test:"
                   # Test what Python the launcher finds
                   echo 'Testing Python resolution in launcher context...'
-                  bash -c 'VENV_DIR="/usr/local/libexec/mycli-venv"; echo "Python found: ${VENV_DIR}/bin/python3"; ls -la "${VENV_DIR}/bin/python3"'
+                  bash -c 'VENV_DIR="/usr/local/microsoft/mycli"; echo "Python found: ${VENV_DIR}/bin/python3"; ls -la "${VENV_DIR}/bin/python3"'
 
             - name: Test installation integrity
               run: |
@@ -184,15 +184,15 @@ jobs:
 
                   # Check for common issues
                   echo "1. Import test:"
-                  /usr/local/libexec/mycli-venv/bin/python3 -c "import mycli_app; print('✅ Module imports successfully')"
+                  /usr/local/microsoft/mycli/bin/python3 -c "import mycli_app; print('✅ Module imports successfully')"
 
                   echo ""
                   echo "2. Dependency check (sample):"
-                  /usr/local/libexec/mycli-venv/bin/python3 -c "import click, colorama; print('✅ Basic dependencies available')"
+                  /usr/local/microsoft/mycli/bin/python3 -c "import click, colorama; print('✅ Basic dependencies available')"
 
                   echo ""
                   echo "3. Azure dependencies (if broker extras included):"
-                  if /usr/local/libexec/mycli-venv/bin/python3 -c "import azure.identity" 2>/dev/null; then
+                  if /usr/local/microsoft/mycli/bin/python3 -c "import azure.identity" 2>/dev/null; then
                     echo "✅ Azure dependencies available"
                   else
                     echo "⚠️  Azure dependencies not available (may be expected)"
@@ -200,7 +200,7 @@ jobs:
 
                   echo ""
                   echo "4. Virtual environment integrity:"
-                  /usr/local/libexec/mycli-venv/bin/python3 -c "import sys; print(f'Python: {sys.version}'); print(f'Executable: {sys.executable}')"
+                  /usr/local/microsoft/mycli/bin/python3 -c "import sys; print(f'Python: {sys.version}'); print(f'Executable: {sys.executable}')"
 
             - name: Test with different working directories
               run: |
@@ -230,7 +230,7 @@ jobs:
 
                   echo ""
                   echo "Installation size:"
-                  echo "Total installation: $(du -sh /usr/local/libexec/mycli-venv | cut -f1)"
+                  echo "Total installation: $(du -sh /usr/local/microsoft/mycli | cut -f1)"
                   echo "Executable: $(du -sh /usr/local/bin/mycli | cut -f1)"
 
             - name: Test authentication workflow (non-blocking)
@@ -268,8 +268,8 @@ jobs:
                     echo "✅ Executable successfully removed"
                   fi
 
-                  if [ -d /usr/local/libexec/mycli-venv ]; then
-                    echo "❌ Runtime still exists at /usr/local/libexec/mycli-venv"
+                  if [ -d /usr/local/microsoft/mycli ]; then
+                    echo "❌ Runtime still exists at /usr/local/microsoft/mycli"
                   else
                     echo "✅ Runtime successfully removed"
                   fi
