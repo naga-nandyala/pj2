@@ -23,6 +23,9 @@ on:
                 type: boolean
                 default: false
 
+permissions:
+    contents: write
+
 env:
     PYTHON_VERSION: "3.12"
 
@@ -257,7 +260,7 @@ jobs:
                   ls -la release-files/
 
             - name: Create Release
-              uses: softprops/action-gh-release@v1
+              uses: softprops/action-gh-release@v2
               with:
                   tag_name: v${{ env.VERSION }}
                   name: MyCLI v${{ env.VERSION }} (Enhanced PKG)
