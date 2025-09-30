@@ -6,12 +6,12 @@ on:
     workflow_dispatch:
         inputs:
             version:
-                description: "Version to test (defaults to latest pkgnew release)"
+                description: "Version to test (defaults to latest pkg release)"
                 required: false
                 type: string
 
 jobs:
-    test-pkgnew-cask:
+    test-pkg-cask:
         strategy:
             matrix:
                 include:
@@ -39,7 +39,7 @@ jobs:
                   echo "=== Cleaning Previous Installations ==="
 
                   # Remove any existing Homebrew installations
-                  brew uninstall --cask pkgnew-app-pj2 2>/dev/null || true
+                  brew uninstall --cask mycli-app-pkgnew-pj2 2>/dev/null || true
                   brew untap naga-nandyala/mycli-app 2>/dev/null || true
 
                   # Remove any manual installations
@@ -64,11 +64,11 @@ jobs:
 
                   # Show available casks
                   echo "Available casks:"
-                  brew search pkgnew-app || true
+                  brew search mycli-app || true
 
-                  # Install the PKGNEW cask
-                  echo "Installing pkgnew-app-pj2..."
-                  brew install --cask pkgnew-app-pj2
+                  # Install the PKG cask
+                  echo "Installing mycli-app-pkgnew-pj2..."
+                  brew install --cask mycli-app-pkgnew-pj2
 
             - name: Verify installation structure
               run: |
@@ -221,7 +221,7 @@ jobs:
 
                   # Test Homebrew uninstall
                   echo "Uninstalling via Homebrew..."
-                  brew uninstall --cask pkgnew-app-pj2
+                  brew uninstall --cask mycli-app-pkgnew-pj2
 
                   echo ""
                   echo "Verifying removal:"
