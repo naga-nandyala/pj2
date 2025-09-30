@@ -240,9 +240,12 @@ jobs:
               run: |
                   if [ -n "${{ inputs.version }}" ]; then
                     echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+                    echo "Using provided version: ${{ inputs.version }}"
                   else
+                    # Extract version from __init__.py if not provided
                     VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print(__version__)")
                     echo "VERSION=$VERSION" >> $GITHUB_ENV
+                    echo "Using version from __init__.py: $VERSION"
                   fi
 
             - name: Download all artifacts
@@ -250,14 +253,33 @@ jobs:
               with:
                   path: release-artifacts
 
-            - name: Organize release files
+            - name: Prepare release assets
               run: |
-                  mkdir -p release-files
-                  find release-artifacts -name "*.pkg" -exec cp {} release-files/ \;
-                  find release-artifacts -name "*.sha256" -exec cp {} release-files/ \;
+                  mkdir -p release
+                  VERSION="${{ env.VERSION }}"
+                  
+                  for arch in macos-arm64 macos-x86_64; do
+                    pkg_path=$(find release-artifacts -type f -name "mycli-${VERSION}-${arch}.pkg" -print -quit)
+                    sha_path=$(find release-artifacts -type f -name "mycli-${VERSION}-${arch}.pkg.sha256" -print -quit)
+                    
+                    if [[ -z "$pkg_path" || -z "$sha_path" ]]; then
+                      echo "Missing artifacts for ${arch}" >&2
+                      echo "Expected: mycli-${VERSION}-${arch}.pkg"
+                      echo "Available files:"
+                      find release-artifacts -name "*.pkg" -o -name "*.sha256"
+                      exit 1
+                    fi
+                    
+                    cp "$pkg_path" release/
+                    cp "$sha_path" release/
+                    
+                    echo "Prepared ${arch} artifacts:"
+                    echo "  PKG: $(basename "$pkg_path")"
+                    echo "  SHA: $(basename "$sha_path")"
+                  done
 
                   echo "=== Release Files ==="
-                  ls -la release-files/
+                  ls -la release/
 
             - name: Create Release
               uses: softprops/action-gh-release@v2
@@ -295,7 +317,11 @@ jobs:
                       Verify package integrity using the provided SHA256 checksums.
 
                       Built with the enhanced PKG installer system supporting both simple and professional installer experiences.
-                  files: release-files/*
+                  files: |
+                      release/mycli-${{ env.VERSION }}-macos-arm64.pkg
+                      release/mycli-${{ env.VERSION }}-macos-arm64.pkg.sha256
+                      release/mycli-${{ env.VERSION }}-macos-x86_64.pkg
+                      release/mycli-${{ env.VERSION }}-macos-x86_64.pkg.sha256
                   draft: false
                   prerelease: false
               env:
