@@ -274,6 +274,12 @@ def _create_pkg_installer(
         if not component_pkg_path.exists():
             raise BuildError(f"Component package creation failed: {component_pkg_path} does not exist")
 
+        # Check component package size for debugging
+        component_size_mb = component_pkg_path.stat().st_size / (1024*1024)
+        print(f"Component package size: {component_size_mb:.1f} MB")
+        if component_size_mb < 1.0:
+            print(f"⚠️  WARNING: Component package is unusually small ({component_size_mb:.1f} MB)")
+
         # Create distribution XML BEFORE productbuild
         print("Creating distribution XML for productbuild...")
         _create_distribution_xml(staging_dir, version=version, platform_tag=platform_tag)
@@ -365,6 +371,20 @@ def _create_distribution_xml(staging_dir: Path, *, version: str, platform_tag: s
     tree.write(distribution_xml, encoding="utf-8", xml_declaration=True)
 
     print(f"Created distribution XML: {distribution_xml}")
+    
+    # Debug: Show XML content and verify component package reference
+    print("Distribution XML content:")
+    with open(distribution_xml, 'r') as f:
+        print(f.read())
+    
+    # Verify component package exists in staging directory
+    expected_component = staging_dir / component_pkg_name
+    if expected_component.exists():
+        print(f"✅ Component package found: {expected_component} ({expected_component.stat().st_size / (1024*1024):.1f} MB)")
+    else:
+        print(f"❌ Component package missing: {expected_component}")
+        print(f"Available files in staging: {list(staging_dir.glob('*.pkg'))}")
+    
     return distribution_xml
 
 
