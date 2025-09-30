@@ -32,13 +32,20 @@ env:
 jobs:
   build-pkg:
     name: Build PKG (${{ matrix.platform_tag }})
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
 
     strategy:
       matrix:
-        platform_tag:
-          - macos-arm64
-          - macos-x86_64
+        include:
+          - platform_tag: macos-arm64
+            runner: macos-14
+            arch: arm64
+          - platform_tag: macos-x86_64
+            runner: macos-13
+            arch: x86_64
+    
+    env:
+      VERSION: ${{ inputs.version }}
 
     steps:
       - name: Checkout repository
@@ -61,24 +68,23 @@ jobs:
             echo "Using version from __init__.py: $VERSION"
           fi
 
-      - name: Install build dependencies and tools
+      - name: Install Xcode Command Line Tools (if needed)
         run: |
-          # Install Python dependencies
-          python -m pip install --upgrade pip setuptools wheel
-
-          # Verify macOS build tools are available
-          echo "=== Checking macOS Build Tools ==="
-          which pkgbuild || echo "❌ pkgbuild not found"
-          which productbuild || echo "❌ productbuild not found"
-          xcode-select --print-path || echo "❌ Xcode Command Line Tools not found"
-
-          # Install Xcode Command Line Tools if missing
-          if ! which pkgbuild > /dev/null; then
+          # Check if pkgbuild is available
+          if ! command -v pkgbuild >/dev/null 2>&1; then
             echo "Installing Xcode Command Line Tools..."
             xcode-select --install || true
-            # Wait for installation
-            sleep 30
+            # Wait for installation to complete
+            until command -v pkgbuild >/dev/null 2>&1; do
+              echo "Waiting for pkgbuild..."
+              sleep 10
+            done
           fi
+          echo "pkgbuild found: $(which pkgbuild)"
+          pkgbuild 2>&1 | head -5 || true
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
 
       - name: Create dist directory
         run: mkdir -p dist/pkg_artifacts
@@ -144,6 +150,19 @@ jobs:
             pkgutil --payload-files "$pkg" | wc -l
             echo "First few files in package:"
             pkgutil --payload-files "$pkg" | head -5
+            
+            echo "=== Checking Azure Dependencies ==="
+            # Extract and check if Azure packages are included
+            TMP_DIR=$(mktemp -d)
+            cd "$TMP_DIR"
+            pkgutil --expand-full "$pkg" extracted/
+            echo "Checking for Azure packages in site-packages:"
+            find extracted/ -name "azure*" -type d | head -5
+            find extracted/ -name "msal*" -type d | head -5
+            echo "Python packages count:"
+            find extracted/ -path "*/site-packages/*" -name "*.dist-info" | wc -l
+            cd - > /dev/null
+            rm -rf "$TMP_DIR"
           done
 
       - name: Verify .pkg creation
