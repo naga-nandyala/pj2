@@ -274,6 +274,10 @@ def _create_pkg_installer(
         if not component_pkg_path.exists():
             raise BuildError(f"Component package creation failed: {component_pkg_path} does not exist")
 
+        # Create distribution XML BEFORE productbuild
+        print("Creating distribution XML for productbuild...")
+        _create_distribution_xml(staging_dir, version=version, platform_tag=platform_tag)
+
         # Create distribution package using productbuild
         print(f"Creating distribution package: {final_pkg_path}")
         distribution_xml_path = staging_dir / "distribution.xml"
@@ -385,11 +389,6 @@ def build_pkg_installer(*, extras: Optional[str], platform_tag: str, use_distrib
         pkg_root = _create_package_root(venv_dir, platform_tag=platform_tag, staging_dir=tmp_dir)
 
         # Phase 3: Create .pkg installer
-        if use_distribution:
-            # Create distribution XML for productbuild
-            _create_distribution_xml(tmp_dir, version=version, platform_tag=platform_tag)
-            print("Distribution XML created for productbuild")
-
         pkg_path = _create_pkg_installer(
             pkg_root,
             version=version,
