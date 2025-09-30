@@ -347,23 +347,22 @@ def _create_distribution_xml(staging_dir: Path, *, version: str, platform_tag: s
     # Create distribution XML with proper references
     root = ET.Element("installer-gui-script", minSpecVersion="2")
 
-    # Title and welcome
+    # Title
     ET.SubElement(root, "title").text = f"MyCLI {version}"
 
-    # Simple choice (no complex UI for now)
+    # Package reference - this MUST come before choices
+    pkg_ref = ET.SubElement(root, "pkg-ref", id="com.naga-nandyala.mycli")
+    pkg_ref.text = component_pkg_name
+
+    # Choices outline
     choices = ET.SubElement(root, "choices-outline")
-    line = ET.SubElement(choices, "line", choice="default")
-    ET.SubElement(line, "line", choice="com.naga-nandyala.mycli")
+    ET.SubElement(choices, "line", choice="mycli-choice")
 
     # Choice definition
-    choice_elem = ET.SubElement(root, "choice", id="default", title="MyCLI", visible="false")
+    choice_elem = ET.SubElement(root, "choice", id="mycli-choice", title="MyCLI")
     choice_elem.set("description", f"Install MyCLI {version} command-line application")
+    choice_elem.set("start_selected", "true")
     ET.SubElement(choice_elem, "pkg-ref", id="com.naga-nandyala.mycli")
-
-    # Package reference pointing to actual component package
-    pkg_ref = ET.SubElement(root, "pkg-ref", id="com.naga-nandyala.mycli", version=version)
-    pkg_ref.set("installKBytes", "100000")  # Approximate size
-    pkg_ref.text = component_pkg_name
 
     # Write XML with proper formatting
     tree = ET.ElementTree(root)
