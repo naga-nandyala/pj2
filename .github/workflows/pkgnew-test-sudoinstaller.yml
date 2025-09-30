@@ -3,8 +3,8 @@ name: (pkgnew installer) - sudoinstaller
 on:
   workflow_dispatch:
     inputs:
-      release_tag:
-        description: "GitHub release tag to test (e.g. v4.0.0)"
+      version:
+        description: "Version to test (e.g. 4.0.0 - without 'v' prefix)"
         required: true
         type: string
 
@@ -44,13 +44,15 @@ jobs:
         run: |
           echo "=== Download and Install PKG ==="
 
-          RELEASE_TAG="${{ github.event.inputs.release_tag }}"
+          VERSION="${{ github.event.inputs.version }}"
+          RELEASE_TAG="v${VERSION}"
           ARCH="${{ matrix.arch }}"
-          PKG_FILENAME="mycli-${RELEASE_TAG#v}-macos-${ARCH}.pkg"
+          PKG_FILENAME="mycli-${VERSION}-macos-${ARCH}.pkg"
 
           echo "Downloading PKG: $PKG_FILENAME"
-          echo "From release: $RELEASE_TAG"
+          echo "From release: $RELEASE_TAG (version: $VERSION)"
           echo "Architecture: $ARCH"
+          echo "Full URL: https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/${PKG_FILENAME}"
 
           # Download PKG file from GitHub releases
           curl -L -o "$PKG_FILENAME" \
@@ -59,6 +61,18 @@ jobs:
           if [ -f "$PKG_FILENAME" ]; then
             echo "✅ PKG file downloaded successfully"
             echo "File size: $(ls -lh "$PKG_FILENAME" | awk '{print $5}')"
+            
+            # Check if file is too small (likely an error page)
+            FILE_SIZE=$(stat -c%s "$PKG_FILENAME" 2>/dev/null || stat -f%z "$PKG_FILENAME")
+            if [ "$FILE_SIZE" -lt 1000 ]; then
+              echo "❌ Downloaded file is too small ($FILE_SIZE bytes), likely an error"
+              echo "File contents:"
+              cat "$PKG_FILENAME"
+              echo ""
+              echo "Available releases and assets:"
+              curl -s "https://api.github.com/repos/${{ github.repository }}/releases" | grep -E '"tag_name"|"name".*\.pkg' | head -20
+              exit 1
+            fi
           else
             echo "❌ Failed to download PKG file"
             exit 1
