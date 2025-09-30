@@ -1,4 +1,4 @@
-name: (pkgnew installer) - sudoinstaller
+name: (pkgnew installer) - sudoinstaller test
 
 on:
   workflow_dispatch:
