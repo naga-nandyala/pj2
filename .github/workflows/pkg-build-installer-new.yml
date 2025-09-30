@@ -257,7 +257,7 @@ jobs:
               run: |
                   mkdir -p release
                   VERSION="${{ env.VERSION }}"
-                  
+
                   for arch in macos-arm64 macos-x86_64; do
                     pkg_path=$(find release-artifacts -type f -name "mycli-${VERSION}-${arch}.pkg" -print -quit)
                     sha_path=$(find release-artifacts -type f -name "mycli-${VERSION}-${arch}.pkg.sha256" -print -quit)
