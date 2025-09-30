@@ -232,9 +232,8 @@ def _create_pkg_installer(
     platform_tag: str,
     artifacts_dir: Path,
     staging_dir: Path,
-    use_distribution: bool = False,
 ) -> Path:
-    """Create macOS .pkg installer using pkgbuild, optionally with productbuild."""
+    """Create macOS .pkg installer using pkgbuild + productbuild for enhanced installer."""
 
     pkg_filename = f"{APP_NAME}-{version}-{platform_tag}.pkg"
     final_pkg_path = artifacts_dir / pkg_filename
@@ -246,79 +245,62 @@ def _create_pkg_installer(
     except BuildError:
         raise BuildError("pkgbuild not found. Install Xcode Command Line Tools: xcode-select --install")
 
-    if use_distribution:
-        # Check if productbuild is available for enhanced installer
-        try:
-            _run(["which", "productbuild"], capture_output=True)
-        except BuildError:
-            raise BuildError("productbuild not found. Install Xcode Command Line Tools: xcode-select --install")
+    # Check if productbuild is available for enhanced installer
+    try:
+        _run(["which", "productbuild"], capture_output=True)
+    except BuildError:
+        raise BuildError("productbuild not found. Install Xcode Command Line Tools: xcode-select --install")
 
-        # Create component package first
-        component_pkg_name = f"{APP_NAME}-component-{version}-{platform_tag}.pkg"
-        component_pkg_path = staging_dir / component_pkg_name
+    # Always use two-step process: component + distribution
+    # Always use two-step process: component + distribution
+    # Create component package first
+    component_pkg_name = f"{APP_NAME}-component-{version}-{platform_tag}.pkg"
+    component_pkg_path = staging_dir / component_pkg_name
 
-        print(f"Creating component package: {component_pkg_path}")
-        cmd = [
-            "pkgbuild",
-            "--root",
-            str(pkg_root),
-            "--identifier",
-            PKG_IDENTIFIER,
-            "--version",
-            version,
-            "--install-location",
-            "/usr/local",
-            str(component_pkg_path),
-        ]
-        _run(cmd)
+    print(f"Creating component package: {component_pkg_path}")
+    cmd = [
+        "pkgbuild",
+        "--root",
+        str(pkg_root),
+        "--identifier",
+        PKG_IDENTIFIER,
+        "--version",
+        version,
+        "--install-location",
+        "/usr/local",
+        str(component_pkg_path),
+    ]
+    _run(cmd)
 
-        # Verify component package was created
-        if not component_pkg_path.exists():
-            raise BuildError(f"Component package creation failed: {component_pkg_path} does not exist")
+    # Verify component package was created
+    if not component_pkg_path.exists():
+        raise BuildError(f"Component package creation failed: {component_pkg_path} does not exist")
 
-        # Check component package size for debugging
-        component_size_mb = component_pkg_path.stat().st_size / (1024 * 1024)
-        print(f"Component package size: {component_size_mb:.1f} MB")
-        if component_size_mb < 1.0:
-            print(f"⚠️  WARNING: Component package is unusually small ({component_size_mb:.1f} MB)")
+    # Check component package size for debugging
+    component_size_mb = component_pkg_path.stat().st_size / (1024 * 1024)
+    print(f"Component package size: {component_size_mb:.1f} MB")
+    if component_size_mb < 1.0:
+        print(f"⚠️  WARNING: Component package is unusually small ({component_size_mb:.1f} MB)")
 
-        # Create distribution XML BEFORE productbuild
-        print("Creating distribution XML for productbuild...")
-        _create_distribution_xml(staging_dir, version=version, platform_tag=platform_tag)
+    # Create distribution XML BEFORE productbuild
+    print("Creating distribution XML for productbuild...")
+    _create_distribution_xml(staging_dir, version=version, platform_tag=platform_tag)
 
-        # Create distribution package using productbuild
-        print(f"Creating distribution package: {final_pkg_path}")
-        distribution_xml_path = staging_dir / "distribution.xml"
+    # Create distribution package using productbuild
+    print(f"Creating distribution package: {final_pkg_path}")
+    distribution_xml_path = staging_dir / "distribution.xml"
 
-        cmd = [
-            "productbuild",
-            "--distribution",
-            str(distribution_xml_path),
-            "--package-path",
-            str(staging_dir),
-            str(final_pkg_path),
-        ]
-        _run(cmd)
+    cmd = [
+        "productbuild",
+        "--distribution",
+        str(distribution_xml_path),
+        "--package-path",
+        str(staging_dir),
+        str(final_pkg_path),
+    ]
+    _run(cmd)
 
-        print(f"Created distribution package: {final_pkg_path} ({final_pkg_path.stat().st_size / (1024*1024):.1f} MB)")
-    else:
-        # Create the package directly with pkgbuild (original working method)
-        print(f"Creating .pkg installer: {final_pkg_path}")
-        cmd = [
-            "pkgbuild",
-            "--root",
-            str(pkg_root),
-            "--identifier",
-            PKG_IDENTIFIER,
-            "--version",
-            version,
-            "--install-location",
-            "/usr/local",
-            str(final_pkg_path),
-        ]
-        _run(cmd)
-
-        print(f"Created package: {final_pkg_path} ({final_pkg_path.stat().st_size / (1024*1024):.1f} MB)")
+    print(f"Created distribution package: {final_pkg_path} ({final_pkg_path.stat().st_size / (1024*1024):.1f} MB)")
 
     # Verify the final package was created
     if not final_pkg_path.exists():
@@ -391,8 +373,8 @@ def _create_distribution_xml(staging_dir: Path, *, version: str, platform_tag: s
     return distribution_xml
 
 
-def build_pkg_installer(*, extras: Optional[str], platform_tag: str, use_distribution: bool = False) -> None:
-    """Build a .pkg installer for macOS."""
+def build_pkg_installer(*, extras: Optional[str], platform_tag: str) -> None:
+    """Build a .pkg installer for macOS using pkgbuild + productbuild."""
 
     version = _detect_version()
     artifacts_dir = PROJECT_ROOT / "dist" / "pkg_artifacts"
@@ -418,7 +400,6 @@ def build_pkg_installer(*, extras: Optional[str], platform_tag: str, use_distrib
             platform_tag=platform_tag,
             artifacts_dir=artifacts_dir,
             staging_dir=tmp_dir,
-            use_distribution=use_distribution,
         )
 
     # Phase 4: Generate checksum
@@ -432,7 +413,7 @@ def build_pkg_installer(*, extras: Optional[str], platform_tag: str, use_distrib
     print(f"  Platform:    {platform_tag}")
     print(f"  Version:     {version}")
     print(f"  Identifier:  {PKG_IDENTIFIER}")
-    print(f"  Build Method: {'productbuild (distribution)' if use_distribution else 'pkgbuild (component)'}")
+    print("  Build Method: productbuild (distribution)")
     print()
     print("Installation Details:")
     print("  Target:      /usr/local/")
@@ -443,12 +424,8 @@ def build_pkg_installer(*, extras: Optional[str], platform_tag: str, use_distrib
     print("  1. Test locally: sudo installer -pkg <pkg-file> -target /")
     print("  2. Upload to GitHub releases")
     print("  3. Update Homebrew Cask to use .pkg")
-    if use_distribution:
-        print("  4. Custom installer UI available via distribution package")
-        print("  5. Consider code signing for distribution outside Homebrew")
-    else:
-        print("  4. Consider using --use-distribution for enhanced installer")
-        print("  5. Consider code signing for distribution outside Homebrew")
+    print("  4. Custom installer UI available via distribution package")
+    print("  5. Consider code signing for distribution outside Homebrew")
 
 
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
@@ -466,11 +443,6 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default="macos-universal2",
         help="Suffix added to artifact names to describe the target platform.",
     )
-    parser.add_argument(
-        "--use-distribution",
-        action="store_true",
-        help="Create distribution XML for advanced installer features",
-    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -480,7 +452,7 @@ def main(argv: Optional[Iterable[str]] = None) -> None:
     extras = (args.extras or "").strip() or None
 
     try:
-        build_pkg_installer(extras=extras, platform_tag=args.platform_tag, use_distribution=args.use_distribution)
+        build_pkg_installer(extras=extras, platform_tag=args.platform_tag)
     except BuildError as exc:
         print(f"\nERROR: {exc}", file=sys.stderr)
         sys.exit(1)
