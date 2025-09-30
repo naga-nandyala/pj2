@@ -1,240 +1,296 @@
-name:  (pkgnew installer) - sudoinstaller test
-on:
-  push:
-    branches: [main]
-    paths:
-      - "scripts/build_pkgnew_installer.py"
-      - "src/**"
-      - "pyproject.toml"
-      - ".github/workflows/pkgnew-test-sudoinstaller.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "scripts/build_pkgnew_installer.py"
-      - "src/**"
-      - "pyproject.toml"
-      - ".github/workflows/pkgnew-test-sudoinstaller.yml"
-  workflow_dispatch:
+name: (pkgnew installer) - sudoinstaller
 
-env:
-  APP_NAME: mycli
-  INSTALL_DIR: microsoft/mycli
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "GitHub release tag to test (e.g. v4.0.0)"
+        required: true
+        type: string
+      architecture:
+        description: "Architecture to test"
+        required: true
+        type: choice
+        options:
+          - arm64
+          - x86_64
 
 jobs:
-  test-pkg-installer:
-    name: Test PKG Direct Installation
-    runs-on: macos-latest
+  test-pkg-installation:
+    name: Test PKG Install (${{ matrix.runner }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+          - runner: macos-13
+            arch: x86_64
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.12"
-
-      - name: Install build dependencies
+      - name: Environment info
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install build
+          echo "=== Environment Information ==="
+          echo "Runner: ${{ matrix.runner }}"
+          echo "Architecture: ${{ matrix.arch }}"
+          echo "macOS version: $(sw_vers -productVersion)"
+          echo "Actual arch: $(uname -m)"
+          echo "Available space: $(df -h / | tail -1 | awk '{print $4}')"
 
-      - name: Build PKG installer
+      - name: Clean previous installations
         run: |
-          echo "Building PKG installer with PowerShell-style structure..."
-          python scripts/build_pkgnew_installer.py --platform-tag macos-arm64 --use-distribution
+          echo "=== Cleaning Previous Installations ==="
 
-          # List created artifacts
-          echo "Created PKG artifacts:"
-          ls -la dist/pkg_artifacts/
+          # Remove any manual installations  
+          sudo rm -f /usr/local/bin/mycli 2>/dev/null || true
+          sudo rm -rf /usr/local/microsoft/mycli 2>/dev/null || true
 
-          # Show PKG file size
-          PKG_FILE=$(find dist/pkg_artifacts -name "*.pkg" | head -1)
-          if [ -f "$PKG_FILE" ]; then
-            echo "PKG file size: $(ls -lh "$PKG_FILE" | awk '{print $5}')"
-            echo "PKG_FILE=$PKG_FILE" >> $GITHUB_ENV
+          echo "✅ Previous installations cleaned"
+
+      - name: Download and install PKG
+        run: |
+          echo "=== Download and Install PKG ==="
+
+          RELEASE_TAG="${{ github.event.inputs.release_tag }}"
+          ARCH="${{ github.event.inputs.architecture }}"
+          PKG_FILENAME="mycli-${RELEASE_TAG#v}-macos-${ARCH}.pkg"
+
+          echo "Downloading PKG: $PKG_FILENAME"
+          echo "From release: $RELEASE_TAG"
+
+          # Download PKG file from GitHub releases
+          curl -L -o "$PKG_FILENAME" \
+            "https://github.com/${{ github.repository }}/releases/download/${RELEASE_TAG}/${PKG_FILENAME}"
+
+          if [ -f "$PKG_FILENAME" ]; then
+            echo "✅ PKG file downloaded successfully"
+            echo "File size: $(ls -lh "$PKG_FILENAME" | awk '{print $5}')"
           else
-            echo "Error: No PKG file found!"
+            echo "❌ Failed to download PKG file"
             exit 1
           fi
 
-      - name: Verify PKG file integrity
-        run: |
-          echo "Verifying PKG file integrity..."
-
-          # Check if SHA256 checksum file exists
-          SHA_FILE="${PKG_FILE}.sha256"
-          if [ -f "$SHA_FILE" ]; then
-            echo "SHA256 checksum verification:"
-            cat "$SHA_FILE"
-            
-            # Verify checksum
-            cd dist/pkg_artifacts
-            shasum -a 256 -c "$(basename "$SHA_FILE")"
-            echo "✅ SHA256 checksum verified successfully"
-          else
-            echo "Warning: No SHA256 file found"
-          fi
-
-          # Check PKG structure using pkgutil
-          echo "PKG file information:"
-          pkgutil --expand-full "$PKG_FILE" /tmp/pkg_expanded
-          echo "PKG contents:"
-          find /tmp/pkg_expanded -type f | head -20
-
-      - name: Clean existing installation (if any)
-        run: |
-          echo "Cleaning any existing mycli installation..."
-
-          # Remove existing installation paths
-          sudo rm -rf "/usr/local/bin/$APP_NAME" || true
-          sudo rm -rf "/usr/local/$INSTALL_DIR" || true
-
-          echo "Cleaned existing installation"
-
-      - name: Test direct PKG installation
-        run: |
-          echo "Testing direct PKG installation using sudo installer..."
-
-          # Install the PKG
-          echo "Installing PKG: $PKG_FILE"
-          sudo installer -pkg "$PKG_FILE" -target /
+          # Install using sudo installer
+          echo "Installing PKG using sudo installer..."
+          sudo installer -pkg "$PKG_FILENAME" -target /
 
           echo "✅ PKG installation completed"
 
-      - name: Verify PowerShell-style installation structure
+      - name: Verify installation structure
         run: |
-          echo "Verifying installation structure..."
+          echo "=== Installation Structure Verification ==="
 
-          # Check executable
-          if [ -x "/usr/local/bin/$APP_NAME" ]; then
-            echo "✅ Executable found: /usr/local/bin/$APP_NAME"
-            ls -la "/usr/local/bin/$APP_NAME"
+          # Check system installation paths
+          echo "1. Executable location:"
+          if [ -f /usr/local/bin/mycli ]; then
+            ls -la /usr/local/bin/mycli
+            echo "✅ Executable found at /usr/local/bin/mycli"
           else
-            echo "❌ Executable missing: /usr/local/bin/$APP_NAME"
+            echo "❌ Executable NOT found at /usr/local/bin/mycli"
             exit 1
           fi
 
-          # Check PowerShell-style directory structure
-          if [ -d "/usr/local/$INSTALL_DIR" ]; then
-            echo "✅ PowerShell-style directory found: /usr/local/$INSTALL_DIR"
-            ls -la "/usr/local/$INSTALL_DIR"
+          echo ""
+          echo "2. Runtime environment:"
+          if [ -d /usr/local/microsoft/mycli ]; then
+            echo "✅ Runtime found at /usr/local/microsoft/mycli"
+            echo "   Size: $(du -sh /usr/local/microsoft/mycli | cut -f1)"
+            echo "   Python executable:"
+            ls -la /usr/local/microsoft/mycli/bin/python* 2>/dev/null | head -3
+            echo ""
+            echo "   Directory structure (2 levels):"
+            tree /usr/local/microsoft/mycli -L 2 2>/dev/null || find /usr/local/microsoft/mycli -maxdepth 2 -type d | head -20
+            echo ""
+            echo "   Key subdirectories:"
+            echo "   - bin/: $(ls /usr/local/microsoft/mycli/bin/ | wc -l) files"
+            echo "   - lib/: $(ls /usr/local/microsoft/mycli/lib/ 2>/dev/null | wc -l) items"
+            if [ -d /usr/local/microsoft/mycli/lib/python3.12/site-packages ]; then
+              echo "   - site-packages/: $(ls /usr/local/microsoft/mycli/lib/python3.12/site-packages/ | wc -l) packages"
+            fi
           else
-            echo "❌ PowerShell-style directory missing: /usr/local/$INSTALL_DIR"
+            echo "❌ Runtime environment NOT found at /usr/local/microsoft/mycli"
             exit 1
           fi
 
-          # Check Python environment
-          if [ -x "/usr/local/$INSTALL_DIR/bin/python3" ]; then
-            echo "✅ Python environment found: /usr/local/$INSTALL_DIR/bin/python3"
-            "/usr/local/$INSTALL_DIR/bin/python3" --version
+          echo ""
+          echo "3. PATH availability:"
+          if command -v mycli >/dev/null 2>&1; then
+            echo "✅ mycli available in PATH: $(which mycli)"
           else
-            echo "❌ Python environment missing: /usr/local/$INSTALL_DIR/bin/python3"
+            echo "❌ mycli NOT available in PATH"
+            echo "PATH: $PATH"
             exit 1
           fi
 
-      - name: Test mycli functionality
-        run: |
-          echo "Testing mycli command functionality..."
+          echo ""
+          echo "4. Package manager records:"
+          echo "Installed packages matching mycli:"
+          pkgutil --pkgs | grep -i mycli || echo "No package records found"
 
-          # Test basic command
-          echo "Running: $APP_NAME --help"
-          "$APP_NAME" --help
-
-          echo "✅ mycli command works correctly"
-
-      - name: Verify installation integrity
-        run: |
-          echo "Running installation integrity checks..."
-
-          # Check that the launcher script points to correct paths
-          echo "Launcher script content:"
-          cat "/usr/local/bin/$APP_NAME"
-
-          # Verify the launcher script contains PowerShell-style paths
-          if grep -q "/usr/local/$INSTALL_DIR" "/usr/local/bin/$APP_NAME"; then
-            echo "✅ Launcher script contains correct PowerShell-style paths"
+          echo ""
+          echo "5. Installation file structure overview:"
+          echo "/usr/local structure (relevant parts):"
+          echo "├── bin/"
+          ls -la /usr/local/bin/mycli* 2>/dev/null || echo "   (no mycli files in bin/)"
+          echo "└── microsoft/"
+          if [ -d /usr/local/microsoft/mycli ]; then
+            echo "    └── mycli/"
+            echo "        ├── bin/ ($(ls /usr/local/microsoft/mycli/bin/ | wc -l) files)"
+            echo "        ├── lib/"
+            if [ -d /usr/local/microsoft/mycli/lib/python3.12 ]; then
+              echo "        │   └── python3.12/"
+              echo "        │       └── site-packages/ ($(ls /usr/local/microsoft/mycli/lib/python3.12/site-packages/ | wc -l) packages)"
+            fi
+            echo "        └── other files: $(find /usr/local/microsoft/mycli -maxdepth 1 -type f | wc -l)"
           else
-            echo "❌ Launcher script missing PowerShell-style paths"
-            exit 1
+            echo "   (no mycli directory)"
           fi
 
-          # Check Python modules are installed
-          echo "Checking installed Python modules:"
-          "/usr/local/$INSTALL_DIR/bin/python3" -c "import sys; print('Python path:', sys.executable)"
-          "/usr/local/$INSTALL_DIR/bin/python3" -c "import mycli_app; print('mycli_app module imported successfully')"
-
-          echo "✅ Installation integrity verified"
-
-      - name: Test different command scenarios
+      - name: Test executable functionality
         run: |
-          echo "Testing various command scenarios..."
+          echo "=== Functional Testing ==="
 
-          # Test help command
-          echo "Testing --help:"
-          "$APP_NAME" --help
+          # Test basic execution
+          echo "1. Version check:"
+          mycli --version
 
-          # Test version command (if available)
-          echo "Testing --version (if available):"
-          "$APP_NAME" --version || echo "Version command not available (this is OK)"
+          echo ""
+          echo "2. Help output:"
+          mycli --help | head -10
 
-          echo "✅ Command scenarios tested successfully"
+          echo ""
+          echo "3. Status command:"
+          mycli status || true
 
-      - name: Compare with Homebrew installation (if possible)
+          echo ""
+          echo "4. Python module execution (direct):"
+          /usr/local/microsoft/mycli/bin/python3 -m mycli_app --version
+
+      - name: Test launcher script robustness
         run: |
-          echo "Comparing with potential Homebrew installation..."
+          echo "=== Launcher Script Testing ==="
 
-          # Check if Homebrew cask exists
-          if command -v brew >/dev/null 2>&1; then
-            echo "Homebrew available - checking for cask:"
-            brew list --cask | grep mycli || echo "No mycli cask currently installed"
+          # Test script contents
+          echo "1. Launcher script content:"
+          head -20 /usr/local/bin/mycli
+
+          echo ""
+          echo "2. Script permissions:"
+          ls -la /usr/local/bin/mycli
+
+          echo ""
+          echo "3. Python resolution test:"
+          # Test what Python the launcher finds
+          echo 'Testing Python resolution in launcher context...'
+          bash -c 'VENV_DIR="/usr/local/microsoft/mycli"; echo "Python found: ${VENV_DIR}/bin/python3"; ls -la "${VENV_DIR}/bin/python3"'
+
+      - name: Test installation integrity
+        run: |
+          echo "=== Installation Integrity Check ==="
+
+          # Check for common issues
+          echo "1. Import test:"
+          /usr/local/microsoft/mycli/bin/python3 -c "import mycli_app; print('✅ Module imports successfully')"
+
+          echo ""
+          echo "2. Dependency check (sample):"
+          /usr/local/microsoft/mycli/bin/python3 -c "import click, colorama; print('✅ Basic dependencies available')"
+
+          echo ""
+          echo "3. Azure dependencies (if broker extras included):"
+          if /usr/local/microsoft/mycli/bin/python3 -c "import azure.identity" 2>/dev/null; then
+            echo "✅ Azure dependencies available"
           else
-            echo "Homebrew not available in CI environment"
+            echo "⚠️  Azure dependencies not available (may be expected)"
           fi
 
-          echo "Direct PKG installation uses PowerShell-style structure: /usr/local/$INSTALL_DIR"
+          echo ""
+          echo "4. Virtual environment integrity:"
+          /usr/local/microsoft/mycli/bin/python3 -c "import sys; print(f'Python: {sys.version}'); print(f'Executable: {sys.executable}')"
 
-      - name: Generate installation report
+      - name: Test with different working directories
         run: |
-          echo "=== PKG INSTALLATION TEST REPORT ==="
-          echo "Installation Method: sudo installer (direct PKG)"
-          echo "PKG File: $PKG_FILE"
-          echo "Installation Structure: PowerShell-style (/usr/local/$INSTALL_DIR)"
-          echo ""
-          echo "Verification Results:"
-          echo "✅ PKG file built successfully"
-          echo "✅ SHA256 checksum verified"
-          echo "✅ Direct installation completed"
-          echo "✅ PowerShell-style directory structure created"
-          echo "✅ Python environment functional"
-          echo "✅ mycli command works"
-          echo "✅ Installation integrity verified"
-          echo ""
-          echo "Installation Details:"
-          echo "  Executable: /usr/local/bin/$APP_NAME"
-          echo "  Runtime: /usr/local/$INSTALL_DIR/"
-          echo "  Python: /usr/local/$INSTALL_DIR/bin/python3"
-          echo ""
-          echo "File sizes:"
-          ls -lh "/usr/local/bin/$APP_NAME"
-          du -sh "/usr/local/$INSTALL_DIR"
-          echo ""
-          echo "=== TEST COMPLETED SUCCESSFULLY ==="
+          echo "=== Working Directory Independence Test ==="
 
-      - name: Upload PKG artifacts
+          # Test from different directories
+          cd /tmp
+          echo "From /tmp:"
+          mycli --version
+
+          cd /Users
+          echo "From /Users:"
+          mycli --version
+
+          cd "$HOME"
+          echo "From home directory:"
+          mycli --version
+
+          echo "✅ Works from different working directories"
+
+      - name: Performance check
+        run: |
+          echo "=== Performance Check ==="
+
+          echo "Testing startup time..."
+          time mycli --version >/dev/null
+
+          echo ""
+          echo "Installation size:"
+          echo "Total installation: $(du -sh /usr/local/microsoft/mycli | cut -f1)"
+          echo "Executable: $(du -sh /usr/local/bin/mycli | cut -f1)"
+
+      - name: Test authentication workflow (non-blocking)
+        run: |
+          echo "=== Authentication Test (Non-blocking) ==="
+
+          # Test broker authentication if available (but don't fail if it doesn't work in CI)
+          set +e
+          mycli login --force-broker 2>&1 | head -20
+          echo ""
+          echo "Authentication test completed (errors expected in CI environment)"
+          set -e
+
+      - name: Cleanup and uninstall test
+        run: |
+          echo "=== Cleanup Test ==="
+
+          # Test manual uninstall (since this was direct PKG installation)
+          echo "Uninstalling manually (no package manager for direct PKG)..."
+          sudo rm -f /usr/local/bin/mycli
+          sudo rm -rf /usr/local/microsoft/mycli
+
+          echo ""
+          echo "Verifying removal:"
+          if command -v mycli >/dev/null 2>&1; then
+            echo "❌ mycli still available after uninstall"
+            which mycli
+            ls -la "$(which mycli)" || true
+          else
+            echo "✅ mycli successfully removed from PATH"
+          fi
+
+          if [ -f /usr/local/bin/mycli ]; then
+            echo "❌ Executable still exists at /usr/local/bin/mycli"
+          else
+            echo "✅ Executable successfully removed"
+          fi
+
+          if [ -d /usr/local/microsoft/mycli ]; then
+            echo "❌ Runtime still exists at /usr/local/microsoft/mycli"
+          else
+            echo "✅ Runtime successfully removed"
+          fi
+
+      - name: Test summary
         if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: pkg-installer-artifacts
-          path: |
-            dist/pkg_artifacts/*.pkg
-            dist/pkg_artifacts/*.sha256
-          retention-days: 7
-
-      - name: Cleanup installation
-        if: always()
         run: |
-          echo "Cleaning up test installation..."
-          sudo rm -rf "/usr/local/bin/$APP_NAME" || true
-          sudo rm -rf "/usr/local/$INSTALL_DIR" || true
-          echo "Cleanup completed"
+          echo "=== Test Summary ==="
+          echo "Platform: ${{ matrix.runner }} (${{ matrix.arch }})"
+          echo "Installation method: Direct PKG (sudo installer)"
+          echo "Test completed at: $(date)"
+
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "✅ All tests passed successfully"
+          else
+            echo "❌ Some tests failed - check logs above"
+          fi
