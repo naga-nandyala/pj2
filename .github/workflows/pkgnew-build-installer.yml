@@ -1,362 +1,362 @@
 name: (pkgnew installer) - release
 
 on:
-    workflow_dispatch:
-        inputs:
-            version:
-                description: "Version to build (e.g., 2.0.0). If not provided, will use version from __init__.py"
-                required: false
-                type: string
-            extras:
-                description: "Optional dependency groups to install (e.g., 'broker'). Leave empty for no extras."
-                required: false
-                type: string
-                default: "broker"
-            use_distribution:
-                description: "Use productbuild for distribution package with custom installer UI"
-                required: false
-                type: boolean
-                default: false
-            create_release:
-                description: "Create GitHub release with built artifacts"
-                required: false
-                type: boolean
-                default: false
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g., 2.0.0). If not provided, will use version from __init__.py"
+        required: false
+        type: string
+      extras:
+        description: "Optional dependency groups to install (e.g., 'broker'). Leave empty for no extras."
+        required: false
+        type: string
+        default: "broker"
+      use_distribution:
+        description: "Use productbuild for distribution package with custom installer UI"
+        required: false
+        type: boolean
+        default: false
+      create_release:
+        description: "Create GitHub release with built artifacts"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
-    contents: write
+  contents: write
 
 env:
-    PYTHON_VERSION: "3.12"
+  PYTHON_VERSION: "3.12"
 
 jobs:
-    build-pkg:
-        name: Build PKG (${{ matrix.platform_tag }})
-        runs-on: macos-latest
+  build-pkg:
+    name: Build PKG (${{ matrix.platform_tag }})
+    runs-on: macos-latest
 
-        strategy:
-            matrix:
-                platform_tag:
-                    - macos-arm64
-                    - macos-x86_64
+    strategy:
+      matrix:
+        platform_tag:
+          - macos-arm64
+          - macos-x86_64
 
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-            - name: Set up Python
-              uses: actions/setup-python@v4
-              with:
-                  python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
-            - name: Set VERSION environment variable
-              run: |
-                  if [ -n "${{ inputs.version }}" ]; then
-                    echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
-                    echo "Using provided version: ${{ inputs.version }}"
-                  else
-                    # Extract version from __init__.py if not provided
-                    VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print(__version__)")
-                    echo "VERSION=$VERSION" >> $GITHUB_ENV
-                    echo "Using version from __init__.py: $VERSION"
-                  fi
+      - name: Set VERSION environment variable
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+            echo "Using provided version: ${{ inputs.version }}"
+          else
+            # Extract version from __init__.py if not provided
+            VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print(__version__)")
+            echo "VERSION=$VERSION" >> $GITHUB_ENV
+            echo "Using version from __init__.py: $VERSION"
+          fi
 
-            - name: Install build dependencies and tools
-              run: |
-                  # Install Python dependencies
-                  python -m pip install --upgrade pip setuptools wheel
+      - name: Install build dependencies and tools
+        run: |
+          # Install Python dependencies
+          python -m pip install --upgrade pip setuptools wheel
 
-                  # Verify macOS build tools are available
-                  echo "=== Checking macOS Build Tools ==="
-                  which pkgbuild || echo "❌ pkgbuild not found"
-                  which productbuild || echo "❌ productbuild not found"
-                  xcode-select --print-path || echo "❌ Xcode Command Line Tools not found"
+          # Verify macOS build tools are available
+          echo "=== Checking macOS Build Tools ==="
+          which pkgbuild || echo "❌ pkgbuild not found"
+          which productbuild || echo "❌ productbuild not found"
+          xcode-select --print-path || echo "❌ Xcode Command Line Tools not found"
 
-                  # Install Xcode Command Line Tools if missing
-                  if ! which pkgbuild > /dev/null; then
-                    echo "Installing Xcode Command Line Tools..."
-                    xcode-select --install || true
-                    # Wait for installation
-                    sleep 30
-                  fi
+          # Install Xcode Command Line Tools if missing
+          if ! which pkgbuild > /dev/null; then
+            echo "Installing Xcode Command Line Tools..."
+            xcode-select --install || true
+            # Wait for installation
+            sleep 30
+          fi
 
-            - name: Create dist directory
-              run: mkdir -p dist/pkg_artifacts
+      - name: Create dist directory
+        run: mkdir -p dist/pkg_artifacts
 
-            - name: Build PKG installer (Enhanced)
-              run: |
-                  echo "=== Build Environment Check ==="
-                  pwd
-                  ls -la scripts/
-                  python --version
+      - name: Build PKG installer (Enhanced)
+        run: |
+          echo "=== Build Environment Check ==="
+          pwd
+          ls -la scripts/
+          python --version
 
-                  echo "=== Python Path Check ==="
-                  python -c "import sys; print('Python path:', sys.path)"
+          echo "=== Python Path Check ==="
+          python -c "import sys; print('Python path:', sys.path)"
 
-                  echo "=== Package Version Check ==="
-                  if [ -n "${{ inputs.version }}" ]; then
-                    echo "Using provided version: ${{ inputs.version }}"
-                  else
-                    echo "Attempting to detect version from package..."
-                    python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print('Detected version:', __version__)" || echo "❌ Version detection failed"
-                  fi
+          echo "=== Package Version Check ==="
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "Using provided version: ${{ inputs.version }}"
+          else
+            echo "Attempting to detect version from package..."
+            python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print('Detected version:', __version__)" || echo "❌ Version detection failed"
+          fi
 
-                  echo "=== Build Tools Check ==="
-                  which pkgbuild || (echo "❌ pkgbuild not found"; exit 1)
-                  which productbuild || echo "⚠️ productbuild not found (only needed for distribution builds)"
+          echo "=== Build Tools Check ==="
+          which pkgbuild || (echo "❌ pkgbuild not found"; exit 1)
+          which productbuild || echo "⚠️ productbuild not found (only needed for distribution builds)"
 
-                  echo "=== Starting PKG Build ==="
-                  EXTRA_ARGS=""
-                  if [ "${{ inputs.use_distribution }}" = "true" ]; then
-                    EXTRA_ARGS="--use-distribution"
-                    echo "Building with productbuild (distribution package)"
-                  else
-                    echo "Building with pkgbuild (component package)"
-                  fi
+          echo "=== Starting PKG Build ==="
+          EXTRA_ARGS=""
+          if [ "${{ inputs.use_distribution }}" = "true" ]; then
+            EXTRA_ARGS="--use-distribution"
+            echo "Building with productbuild (distribution package)"
+          else
+            echo "Building with pkgbuild (component package)"
+          fi
 
-                  # Determine extras parameter
-                  EXTRAS="${{ inputs.extras }}"
-                  if [ -z "$EXTRAS" ]; then
-                    EXTRAS="broker"  # Default to broker for full PKG
-                  fi
-                  echo "Using extras: $EXTRAS"
+          # Determine extras parameter
+          EXTRAS="${{ inputs.extras }}"
+          if [ -z "$EXTRAS" ]; then
+            EXTRAS="broker"  # Default to broker for full PKG
+          fi
+          echo "Using extras: $EXTRAS"
 
-                  # Run the build with verbose output and specified extras
-                  python scripts/build_pkgnew_installer.py --platform-tag ${{ matrix.platform_tag }} --extras "$EXTRAS" $EXTRA_ARGS
+          # Run the build with verbose output and specified extras
+          python scripts/build_pkgnew_installer.py --platform-tag ${{ matrix.platform_tag }} --extras "$EXTRAS" $EXTRA_ARGS
 
-            - name: Debug PKG contents
-              run: |
-                  echo "=== Post-Build Diagnostics ==="
-                  echo "Checking dist/pkg_artifacts directory:"
-                  ls -la dist/pkg_artifacts/
+      - name: Debug PKG contents
+        run: |
+          echo "=== Post-Build Diagnostics ==="
+          echo "Checking dist/pkg_artifacts directory:"
+          ls -la dist/pkg_artifacts/
 
-                  echo "Finding all PKG files:"
-                  find dist/ -name "*.pkg" -exec ls -lh {} \;
+          echo "Finding all PKG files:"
+          find dist/ -name "*.pkg" -exec ls -lh {} \;
 
-                  # Check what's inside the PKG
-                  PKG_FILES=$(find dist/pkg_artifacts -name "*.pkg")
-                  for pkg in $PKG_FILES; do
-                    echo "=== Analyzing $pkg ==="
-                    echo "File size: $(ls -lh "$pkg" | awk '{print $5}')"
-                    echo "Package contents:"
-                    pkgutil --payload-files "$pkg" | head -10
-                    echo "Package structure:"
-                    pkgutil --payload-files "$pkg" | wc -l
-                    echo "First few files in package:"
-                    pkgutil --payload-files "$pkg" | head -5
-                  done
+          # Check what's inside the PKG
+          PKG_FILES=$(find dist/pkg_artifacts -name "*.pkg")
+          for pkg in $PKG_FILES; do
+            echo "=== Analyzing $pkg ==="
+            echo "File size: $(ls -lh "$pkg" | awk '{print $5}')"
+            echo "Package contents:"
+            pkgutil --payload-files "$pkg" | head -10
+            echo "Package structure:"
+            pkgutil --payload-files "$pkg" | wc -l
+            echo "First few files in package:"
+            pkgutil --payload-files "$pkg" | head -5
+          done
 
-            - name: Verify .pkg creation
-              working-directory: dist/pkg_artifacts
-              run: |
-                  # Get version from environment or detect it
-                  if [ -n "${{ inputs.version }}" ]; then
-                    VERSION="${{ inputs.version }}"
-                  else
-                    VERSION=$(python -c "import sys; sys.path.insert(0, '../src'); from mycli_app import __version__; print(__version__)")
-                  fi
+      - name: Verify .pkg creation
+        working-directory: dist/pkg_artifacts
+        run: |
+          # Get version from environment or detect it
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=$(python -c "import sys; sys.path.insert(0, '../src'); from mycli_app import __version__; print(__version__)")
+          fi
 
-                  PKG_FILE="mycli-${VERSION}-${{ matrix.platform_tag }}.pkg"
-                  SHA_FILE="${PKG_FILE}.sha256"
+          PKG_FILE="mycli-${VERSION}-${{ matrix.platform_tag }}.pkg"
+          SHA_FILE="${PKG_FILE}.sha256"
 
-                  echo "=== PKG Build Verification ==="
-                  echo "Looking for: $PKG_FILE"
-                  echo "Available files:"
-                  ls -la
+          echo "=== PKG Build Verification ==="
+          echo "Looking for: $PKG_FILE"
+          echo "Available files:"
+          ls -la
 
-                  if [ -f "$PKG_FILE" ]; then
-                    echo "✅ PKG file created: $PKG_FILE"
-                    echo "📦 Size: $(du -h "$PKG_FILE" | cut -f1)"
-                  else
-                    echo "❌ PKG file missing: $PKG_FILE"
-                    echo "Let's check what files were actually created:"
-                    find . -name "*.pkg" -o -name "*.sha256"
-                    exit 1
-                  fi
+          if [ -f "$PKG_FILE" ]; then
+            echo "✅ PKG file created: $PKG_FILE"
+            echo "📦 Size: $(du -h "$PKG_FILE" | cut -f1)"
+          else
+            echo "❌ PKG file missing: $PKG_FILE"
+            echo "Let's check what files were actually created:"
+            find . -name "*.pkg" -o -name "*.sha256"
+            exit 1
+          fi
 
-                  if [ -f "$SHA_FILE" ]; then
-                    echo "✅ SHA256 file created: $SHA_FILE"
-                    echo "🔍 Checksum: $(cat "$SHA_FILE")"
-                  else
-                    echo "❌ SHA256 file missing: $SHA_FILE"
-                    exit 1
-                  fi
+          if [ -f "$SHA_FILE" ]; then
+            echo "✅ SHA256 file created: $SHA_FILE"
+            echo "🔍 Checksum: $(cat "$SHA_FILE")"
+          else
+            echo "❌ SHA256 file missing: $SHA_FILE"
+            exit 1
+          fi
 
-            - name: Upload PKG artifacts
-              uses: actions/upload-artifact@v4
-              with:
-                  name: pkg-installer-${{ matrix.platform_tag }}
-                  path: |
-                      dist/pkg_artifacts/*.pkg
-                      dist/pkg_artifacts/*.sha256
-                  retention-days: 30
+      - name: Upload PKG artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-installer-${{ matrix.platform_tag }}
+          path: |
+            dist/pkg_artifacts/*.pkg
+            dist/pkg_artifacts/*.sha256
+          retention-days: 30
 
-            - name: Test PKG installation (dry run)
-              run: |
-                  # Get version from environment or detect it
-                  if [ -n "${{ inputs.version }}" ]; then
-                    VERSION="${{ inputs.version }}"
-                  else
-                    VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print(__version__)")
-                  fi
+      - name: Test PKG installation (dry run)
+        run: |
+          # Get version from environment or detect it
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print(__version__)")
+          fi
 
-                  PKG_FILE="dist/pkg_artifacts/mycli-${VERSION}-${{ matrix.platform_tag }}.pkg"
+          PKG_FILE="dist/pkg_artifacts/mycli-${VERSION}-${{ matrix.platform_tag }}.pkg"
 
-                  echo "=== PKG Installation Test (Dry Run) ==="
-                  echo "Testing PKG file: $PKG_FILE"
+          echo "=== PKG Installation Test (Dry Run) ==="
+          echo "Testing PKG file: $PKG_FILE"
 
-                  if [ ! -f "$PKG_FILE" ]; then
-                    echo "❌ PKG file not found: $PKG_FILE"
-                    echo "Available files in dist/pkg_artifacts:"
-                    ls -la dist/pkg_artifacts/
-                    exit 1
-                  fi
+          if [ ! -f "$PKG_FILE" ]; then
+            echo "❌ PKG file not found: $PKG_FILE"
+            echo "Available files in dist/pkg_artifacts:"
+            ls -la dist/pkg_artifacts/
+            exit 1
+          fi
 
-                  echo "📋 PKG Signature Check:"
-                  pkgutil --check-signature "$PKG_FILE" || echo "⚠️  Package not signed (expected for development)"
+          echo "📋 PKG Signature Check:"
+          pkgutil --check-signature "$PKG_FILE" || echo "⚠️  Package not signed (expected for development)"
 
-                  echo "📋 Package Contents Preview:"
-                  pkgutil --payload-files "$PKG_FILE" | head -20
+          echo "📋 Package Contents Preview:"
+          pkgutil --payload-files "$PKG_FILE" | head -20
 
-                  echo "📋 Package File Info:"
-                  file "$PKG_FILE"
+          echo "📋 Package File Info:"
+          file "$PKG_FILE"
 
-                  echo "📋 Package Size:"
-                  ls -lh "$PKG_FILE"
+          echo "📋 Package Size:"
+          ls -lh "$PKG_FILE"
 
-                  echo "✅ PKG validation completed successfully!"
+          echo "✅ PKG validation completed successfully!"
 
-    create-release:
-        name: Create GitHub Release
-        runs-on: ubuntu-latest
-        needs: build-pkg
-        if: ${{ inputs.create_release }}
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build-pkg
+    if: ${{ inputs.create_release }}
 
-        steps:
-            - name: Checkout repository
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-            - name: Set VERSION environment variable
-              run: |
-                  if [ -n "${{ inputs.version }}" ]; then
-                    echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
-                    echo "Using provided version: ${{ inputs.version }}"
-                  else
-                    # Extract version from __init__.py if not provided
-                    VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print(__version__)")
-                    echo "VERSION=$VERSION" >> $GITHUB_ENV
-                    echo "Using version from __init__.py: $VERSION"
-                  fi
+      - name: Set VERSION environment variable
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+            echo "Using provided version: ${{ inputs.version }}"
+          else
+            # Extract version from __init__.py if not provided
+            VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print(__version__)")
+            echo "VERSION=$VERSION" >> $GITHUB_ENV
+            echo "Using version from __init__.py: $VERSION"
+          fi
 
-            - name: Download all artifacts
-              uses: actions/download-artifact@v4
-              with:
-                  path: release-artifacts
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
 
-            - name: Prepare release assets
-              run: |
-                  mkdir -p release
-                  VERSION="${{ env.VERSION }}"
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          VERSION="${{ env.VERSION }}"
 
-                  for arch in macos-arm64 macos-x86_64; do
-                    pkg_path=$(find release-artifacts -type f -name "mycli-${VERSION}-${arch}.pkg" -print -quit)
-                    sha_path=$(find release-artifacts -type f -name "mycli-${VERSION}-${arch}.pkg.sha256" -print -quit)
-                    
-                    if [[ -z "$pkg_path" || -z "$sha_path" ]]; then
-                      echo "Missing artifacts for ${arch}" >&2
-                      echo "Expected: mycli-${VERSION}-${arch}.pkg"
-                      echo "Available files:"
-                      find release-artifacts -name "*.pkg" -o -name "*.sha256"
-                      exit 1
-                    fi
-                    
-                    cp "$pkg_path" release/
-                    cp "$sha_path" release/
-                    
-                    echo "Prepared ${arch} artifacts:"
-                    echo "  PKG: $(basename "$pkg_path")"
-                    echo "  SHA: $(basename "$sha_path")"
-                  done
+          for arch in macos-arm64 macos-x86_64; do
+            pkg_path=$(find release-artifacts -type f -name "mycli-${VERSION}-${arch}.pkg" -print -quit)
+            sha_path=$(find release-artifacts -type f -name "mycli-${VERSION}-${arch}.pkg.sha256" -print -quit)
+            
+            if [[ -z "$pkg_path" || -z "$sha_path" ]]; then
+              echo "Missing artifacts for ${arch}" >&2
+              echo "Expected: mycli-${VERSION}-${arch}.pkg"
+              echo "Available files:"
+              find release-artifacts -name "*.pkg" -o -name "*.sha256"
+              exit 1
+            fi
+            
+            cp "$pkg_path" release/
+            cp "$sha_path" release/
+            
+            echo "Prepared ${arch} artifacts:"
+            echo "  PKG: $(basename "$pkg_path")"
+            echo "  SHA: $(basename "$sha_path")"
+          done
 
-                  echo "=== Release Files ==="
-                  ls -la release/
+          echo "=== Release Files ==="
+          ls -la release/
 
-            - name: Create Release
-              uses: softprops/action-gh-release@v2
-              with:
-                  tag_name: v${{ env.VERSION }}
-                  name: MyCLI v${{ env.VERSION }} (Enhanced PKG)
-                  body: |
-                      # MyCLI v${{ env.VERSION }} - Enhanced PKG Installer
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: MyCLI v${{ env.VERSION }} (Enhanced PKG)
+          body: |
+            # MyCLI v${{ env.VERSION }} - Enhanced PKG Installer
 
-                      This release includes enhanced macOS PKG installers with support for both simple and distribution builds.
+            This release includes enhanced macOS PKG installers with support for both simple and distribution builds.
 
-                      ## Installation Methods
+            ## Installation Methods
 
-                      ### Homebrew Cask (Recommended)
-                      ```bash
-                      brew install --cask mycli-app-pkg-pj2
-                      ```
+            ### Homebrew Cask (Recommended)
+            ```bash
+            brew install --cask mycli-app-pkg-pj2
+            ```
 
-                      ### Direct PKG Installation
-                      Download the appropriate PKG file for your architecture:
-                      - **Apple Silicon (M1/M2/M3)**: `mycli-${{ env.VERSION }}-macos-arm64.pkg`
-                      - **Intel**: `mycli-${{ env.VERSION }}-macos-x86_64.pkg`
+            ### Direct PKG Installation
+            Download the appropriate PKG file for your architecture:
+            - **Apple Silicon (M1/M2/M3)**: `mycli-${{ env.VERSION }}-macos-arm64.pkg`
+            - **Intel**: `mycli-${{ env.VERSION }}-macos-x86_64.pkg`
 
-                      Install with:
-                      ```bash
-                      sudo installer -pkg mycli-${{ env.VERSION }}-macos-<arch>.pkg -target /
-                      ```
+            Install with:
+            ```bash
+            sudo installer -pkg mycli-${{ env.VERSION }}-macos-<arch>.pkg -target /
+            ```
 
-                      ## Build Details
-                      - **Build Method**: ${{ inputs.use_distribution && 'productbuild (distribution)' || 'pkgbuild (component)' }}
-                      - **Python Version**: ${{ env.PYTHON_VERSION }}
-                      - **Installation Location**: `/usr/local/bin/mycli` → `/usr/local/libexec/mycli-venv/`
+            ## Build Details
+            - **Build Method**: ${{ inputs.use_distribution && 'productbuild (distribution)' || 'pkgbuild (component)' }}
+            - **Python Version**: ${{ env.PYTHON_VERSION }}
+            - **Installation Location**: `/usr/local/bin/mycli` → `/usr/local/libexec/mycli-venv/`
 
-                      ## Verification
-                      Verify package integrity using the provided SHA256 checksums.
+            ## Verification
+            Verify package integrity using the provided SHA256 checksums.
 
-                      Built with the enhanced PKG installer system supporting both simple and professional installer experiences.
-                  files: |
-                      release/mycli-${{ env.VERSION }}-macos-arm64.pkg
-                      release/mycli-${{ env.VERSION }}-macos-arm64.pkg.sha256
-                      release/mycli-${{ env.VERSION }}-macos-x86_64.pkg
-                      release/mycli-${{ env.VERSION }}-macos-x86_64.pkg.sha256
-                  draft: false
-                  prerelease: false
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            Built with the enhanced PKG installer system supporting both simple and professional installer experiences.
+          files: |
+            release/mycli-${{ env.VERSION }}-macos-arm64.pkg
+            release/mycli-${{ env.VERSION }}-macos-arm64.pkg.sha256
+            release/mycli-${{ env.VERSION }}-macos-x86_64.pkg
+            release/mycli-${{ env.VERSION }}-macos-x86_64.pkg.sha256
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    summary:
-        name: Build Summary
-        runs-on: ubuntu-latest
-        needs: build-pkg
-        if: always()
+  summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: build-pkg
+    if: always()
 
-        steps:
-            - name: Build Summary
-              run: |
-                  echo "# PKG Build Summary (Enhanced)" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "## Configuration" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Version**: \`${{ inputs.version || 'auto-detected' }}\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Extras**: \`${{ inputs.extras || 'broker (default)' }}\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Build Method**: ${{ inputs.use_distribution && 'productbuild (distribution)' || 'pkgbuild (component)' }}" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Script Used**: \`build_pkgnew_installer.py\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Create Release**: ${{ inputs.create_release }}" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "## Build Status" >> $GITHUB_STEP_SUMMARY
-                  echo "- **macOS ARM64**: ${{ needs.build-pkg.result == 'success' && '✅ Success' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
-                  echo "- **macOS x86_64**: ${{ needs.build-pkg.result == 'success' && '✅ Success' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
-                  if [ "${{ inputs.use_distribution }}" = "true" ]; then
-                    echo "## Distribution Build Features" >> $GITHUB_STEP_SUMMARY
-                    echo "- Custom installer UI with productbuild" >> $GITHUB_STEP_SUMMARY
-                    echo "- Professional installer experience" >> $GITHUB_STEP_SUMMARY
-                    echo "- Distribution XML with package references" >> $GITHUB_STEP_SUMMARY
-                  else
-                    echo "## Simple Build Features" >> $GITHUB_STEP_SUMMARY
-                    echo "- Component package with pkgbuild" >> $GITHUB_STEP_SUMMARY
-                    echo "- Perfect for Homebrew Cask distribution" >> $GITHUB_STEP_SUMMARY
-                    echo "- Silent installation experience" >> $GITHUB_STEP_SUMMARY
-                  fi
+    steps:
+      - name: Build Summary
+        run: |
+          echo "# PKG Build Summary (Enhanced)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: \`${{ inputs.version || 'auto-detected' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Extras**: \`${{ inputs.extras || 'broker (default)' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Method**: ${{ inputs.use_distribution && 'productbuild (distribution)' || 'pkgbuild (component)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Script Used**: \`build_pkgnew_installer.py\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Create Release**: ${{ inputs.create_release }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Build Status" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS ARM64**: ${{ needs.build-pkg.result == 'success' && '✅ Success' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **macOS x86_64**: ${{ needs.build-pkg.result == 'success' && '✅ Success' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ inputs.use_distribution }}" = "true" ]; then
+            echo "## Distribution Build Features" >> $GITHUB_STEP_SUMMARY
+            echo "- Custom installer UI with productbuild" >> $GITHUB_STEP_SUMMARY
+            echo "- Professional installer experience" >> $GITHUB_STEP_SUMMARY
+            echo "- Distribution XML with package references" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "## Simple Build Features" >> $GITHUB_STEP_SUMMARY
+            echo "- Component package with pkgbuild" >> $GITHUB_STEP_SUMMARY
+            echo "- Perfect for Homebrew Cask distribution" >> $GITHUB_STEP_SUMMARY
+            echo "- Silent installation experience" >> $GITHUB_STEP_SUMMARY
+          fi
