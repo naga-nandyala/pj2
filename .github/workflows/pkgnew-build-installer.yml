@@ -1,4 +1,4 @@
-name: (pkgnew installer) - release
+name: (pkgnew enhanced installer) - release
 
 on:
   workflow_dispatch:
@@ -7,21 +7,11 @@ on:
         description: "Version to build (e.g., 2.0.0). If not provided, will use version from __init__.py"
         required: false
         type: string
-      extras:
-        description: "Optional dependency groups to install (e.g., 'broker'). Leave empty for no extras."
-        required: false
-        type: string
-        default: "broker"
-      use_distribution:
-        description: "Use productbuild for distribution package with custom installer UI"
-        required: false
-        type: boolean
-        default: false
       create_release:
         description: "Create GitHub release with built artifacts"
         required: false
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write
@@ -109,26 +99,17 @@ jobs:
 
           echo "=== Build Tools Check ==="
           which pkgbuild || (echo "❌ pkgbuild not found"; exit 1)
-          which productbuild || echo "⚠️ productbuild not found (only needed for distribution builds)"
+          which productbuild || (echo "❌ productbuild not found"; exit 1)
 
           echo "=== Starting PKG Build ==="
-          EXTRA_ARGS=""
-          if [ "${{ inputs.use_distribution }}" = "true" ]; then
-            EXTRA_ARGS="--use-distribution"
-            echo "Building with productbuild (distribution package)"
-          else
-            echo "Building with pkgbuild (component package)"
-          fi
+          echo "Building with productbuild (enhanced distribution package)"
 
-          # Determine extras parameter
-          EXTRAS="${{ inputs.extras }}"
-          if [ -z "$EXTRAS" ]; then
-            EXTRAS="broker"  # Default to broker for full PKG
-          fi
+          # Always use broker extras for full PKG functionality
+          EXTRAS="broker"
           echo "Using extras: $EXTRAS"
 
           # Run the build with verbose output and specified extras
-          python scripts/build_pkgnew_installer.py --platform-tag ${{ matrix.platform_tag }} --extras "$EXTRAS" $EXTRA_ARGS
+          python scripts/build_pkgnew_installer.py --platform-tag ${{ matrix.platform_tag }} --extras "$EXTRAS"
 
       - name: Debug PKG contents
         run: |
@@ -313,11 +294,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
-          name: MyCLI v${{ env.VERSION }} (Enhanced PKG)
+          name: MyCLI v${{ env.VERSION }} (Enhanced PKG Installer)
           body: |
             # MyCLI v${{ env.VERSION }} - Enhanced PKG Installer
 
-            This release includes enhanced macOS PKG installers with support for both simple and distribution builds.
+            This release includes enhanced macOS PKG installers with productbuild for professional installer experience.
 
             ## Installation Methods
 
@@ -337,14 +318,14 @@ jobs:
             ```
 
             ## Build Details
-            - **Build Method**: ${{ inputs.use_distribution && 'productbuild (distribution)' || 'pkgbuild (component)' }}
+            - **Build Method**: productbuild (enhanced distribution)
             - **Python Version**: ${{ env.PYTHON_VERSION }}
             - **Installation Location**: `/usr/local/bin/mycli` → `/usr/local/microsoft/mycli/`
 
             ## Verification
             Verify package integrity using the provided SHA256 checksums.
 
-            Built with the enhanced PKG installer system supporting both simple and professional installer experiences.
+            Built with the enhanced PKG installer system providing professional installer experience with productbuild.
           files: |
             release/mycli-${{ env.VERSION }}-macos-arm64.pkg
             release/mycli-${{ env.VERSION }}-macos-arm64.pkg.sha256
@@ -364,12 +345,12 @@ jobs:
     steps:
       - name: Build Summary
         run: |
-          echo "# PKG Build Summary (Enhanced)" >> $GITHUB_STEP_SUMMARY
+          echo "# PKG Build Summary (Enhanced Installer)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Configuration" >> $GITHUB_STEP_SUMMARY
           echo "- **Version**: \`${{ inputs.version || 'auto-detected' }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Extras**: \`${{ inputs.extras || 'broker (default)' }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Build Method**: ${{ inputs.use_distribution && 'productbuild (distribution)' || 'pkgbuild (component)' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Extras**: \`broker (always included)\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Method**: productbuild (enhanced distribution)" >> $GITHUB_STEP_SUMMARY
           echo "- **Script Used**: \`build_pkgnew_installer.py\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Create Release**: ${{ inputs.create_release }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -377,14 +358,8 @@ jobs:
           echo "- **macOS ARM64**: ${{ needs.build-pkg.result == 'success' && '✅ Success' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **macOS x86_64**: ${{ needs.build-pkg.result == 'success' && '✅ Success' || '❌ Failed' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ inputs.use_distribution }}" = "true" ]; then
-            echo "## Distribution Build Features" >> $GITHUB_STEP_SUMMARY
-            echo "- Custom installer UI with productbuild" >> $GITHUB_STEP_SUMMARY
-            echo "- Professional installer experience" >> $GITHUB_STEP_SUMMARY
-            echo "- Distribution XML with package references" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "## Simple Build Features" >> $GITHUB_STEP_SUMMARY
-            echo "- Component package with pkgbuild" >> $GITHUB_STEP_SUMMARY
-            echo "- Perfect for Homebrew Cask distribution" >> $GITHUB_STEP_SUMMARY
-            echo "- Silent installation experience" >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "## Enhanced Distribution Build Features" >> $GITHUB_STEP_SUMMARY
+          echo "- Custom installer UI with productbuild" >> $GITHUB_STEP_SUMMARY
+          echo "- Professional installer experience" >> $GITHUB_STEP_SUMMARY
+          echo "- Distribution XML with package references" >> $GITHUB_STEP_SUMMARY
+          echo "- PowerShell-style installation paths" >> $GITHUB_STEP_SUMMARY
