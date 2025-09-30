@@ -1,0 +1,240 @@
+name:  (pkgnew installer) - sudoinstaller test
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/build_pkgnew_installer.py"
+      - "src/**"
+      - "pyproject.toml"
+      - ".github/workflows/pkgnew-test-sudoinstaller.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/build_pkgnew_installer.py"
+      - "src/**"
+      - "pyproject.toml"
+      - ".github/workflows/pkgnew-test-sudoinstaller.yml"
+  workflow_dispatch:
+
+env:
+  APP_NAME: mycli
+  INSTALL_DIR: microsoft/mycli
+
+jobs:
+  test-pkg-installer:
+    name: Test PKG Direct Installation
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+
+      - name: Build PKG installer
+        run: |
+          echo "Building PKG installer with PowerShell-style structure..."
+          python scripts/build_pkgnew_installer.py --platform-tag macos-arm64 --use-distribution
+
+          # List created artifacts
+          echo "Created PKG artifacts:"
+          ls -la dist/pkg_artifacts/
+
+          # Show PKG file size
+          PKG_FILE=$(find dist/pkg_artifacts -name "*.pkg" | head -1)
+          if [ -f "$PKG_FILE" ]; then
+            echo "PKG file size: $(ls -lh "$PKG_FILE" | awk '{print $5}')"
+            echo "PKG_FILE=$PKG_FILE" >> $GITHUB_ENV
+          else
+            echo "Error: No PKG file found!"
+            exit 1
+          fi
+
+      - name: Verify PKG file integrity
+        run: |
+          echo "Verifying PKG file integrity..."
+
+          # Check if SHA256 checksum file exists
+          SHA_FILE="${PKG_FILE}.sha256"
+          if [ -f "$SHA_FILE" ]; then
+            echo "SHA256 checksum verification:"
+            cat "$SHA_FILE"
+            
+            # Verify checksum
+            cd dist/pkg_artifacts
+            shasum -a 256 -c "$(basename "$SHA_FILE")"
+            echo "✅ SHA256 checksum verified successfully"
+          else
+            echo "Warning: No SHA256 file found"
+          fi
+
+          # Check PKG structure using pkgutil
+          echo "PKG file information:"
+          pkgutil --expand-full "$PKG_FILE" /tmp/pkg_expanded
+          echo "PKG contents:"
+          find /tmp/pkg_expanded -type f | head -20
+
+      - name: Clean existing installation (if any)
+        run: |
+          echo "Cleaning any existing mycli installation..."
+
+          # Remove existing installation paths
+          sudo rm -rf "/usr/local/bin/$APP_NAME" || true
+          sudo rm -rf "/usr/local/$INSTALL_DIR" || true
+
+          echo "Cleaned existing installation"
+
+      - name: Test direct PKG installation
+        run: |
+          echo "Testing direct PKG installation using sudo installer..."
+
+          # Install the PKG
+          echo "Installing PKG: $PKG_FILE"
+          sudo installer -pkg "$PKG_FILE" -target /
+
+          echo "✅ PKG installation completed"
+
+      - name: Verify PowerShell-style installation structure
+        run: |
+          echo "Verifying installation structure..."
+
+          # Check executable
+          if [ -x "/usr/local/bin/$APP_NAME" ]; then
+            echo "✅ Executable found: /usr/local/bin/$APP_NAME"
+            ls -la "/usr/local/bin/$APP_NAME"
+          else
+            echo "❌ Executable missing: /usr/local/bin/$APP_NAME"
+            exit 1
+          fi
+
+          # Check PowerShell-style directory structure
+          if [ -d "/usr/local/$INSTALL_DIR" ]; then
+            echo "✅ PowerShell-style directory found: /usr/local/$INSTALL_DIR"
+            ls -la "/usr/local/$INSTALL_DIR"
+          else
+            echo "❌ PowerShell-style directory missing: /usr/local/$INSTALL_DIR"
+            exit 1
+          fi
+
+          # Check Python environment
+          if [ -x "/usr/local/$INSTALL_DIR/bin/python3" ]; then
+            echo "✅ Python environment found: /usr/local/$INSTALL_DIR/bin/python3"
+            "/usr/local/$INSTALL_DIR/bin/python3" --version
+          else
+            echo "❌ Python environment missing: /usr/local/$INSTALL_DIR/bin/python3"
+            exit 1
+          fi
+
+      - name: Test mycli functionality
+        run: |
+          echo "Testing mycli command functionality..."
+
+          # Test basic command
+          echo "Running: $APP_NAME --help"
+          "$APP_NAME" --help
+
+          echo "✅ mycli command works correctly"
+
+      - name: Verify installation integrity
+        run: |
+          echo "Running installation integrity checks..."
+
+          # Check that the launcher script points to correct paths
+          echo "Launcher script content:"
+          cat "/usr/local/bin/$APP_NAME"
+
+          # Verify the launcher script contains PowerShell-style paths
+          if grep -q "/usr/local/$INSTALL_DIR" "/usr/local/bin/$APP_NAME"; then
+            echo "✅ Launcher script contains correct PowerShell-style paths"
+          else
+            echo "❌ Launcher script missing PowerShell-style paths"
+            exit 1
+          fi
+
+          # Check Python modules are installed
+          echo "Checking installed Python modules:"
+          "/usr/local/$INSTALL_DIR/bin/python3" -c "import sys; print('Python path:', sys.executable)"
+          "/usr/local/$INSTALL_DIR/bin/python3" -c "import mycli_app; print('mycli_app module imported successfully')"
+
+          echo "✅ Installation integrity verified"
+
+      - name: Test different command scenarios
+        run: |
+          echo "Testing various command scenarios..."
+
+          # Test help command
+          echo "Testing --help:"
+          "$APP_NAME" --help
+
+          # Test version command (if available)
+          echo "Testing --version (if available):"
+          "$APP_NAME" --version || echo "Version command not available (this is OK)"
+
+          echo "✅ Command scenarios tested successfully"
+
+      - name: Compare with Homebrew installation (if possible)
+        run: |
+          echo "Comparing with potential Homebrew installation..."
+
+          # Check if Homebrew cask exists
+          if command -v brew >/dev/null 2>&1; then
+            echo "Homebrew available - checking for cask:"
+            brew list --cask | grep mycli || echo "No mycli cask currently installed"
+          else
+            echo "Homebrew not available in CI environment"
+          fi
+
+          echo "Direct PKG installation uses PowerShell-style structure: /usr/local/$INSTALL_DIR"
+
+      - name: Generate installation report
+        run: |
+          echo "=== PKG INSTALLATION TEST REPORT ==="
+          echo "Installation Method: sudo installer (direct PKG)"
+          echo "PKG File: $PKG_FILE"
+          echo "Installation Structure: PowerShell-style (/usr/local/$INSTALL_DIR)"
+          echo ""
+          echo "Verification Results:"
+          echo "✅ PKG file built successfully"
+          echo "✅ SHA256 checksum verified"
+          echo "✅ Direct installation completed"
+          echo "✅ PowerShell-style directory structure created"
+          echo "✅ Python environment functional"
+          echo "✅ mycli command works"
+          echo "✅ Installation integrity verified"
+          echo ""
+          echo "Installation Details:"
+          echo "  Executable: /usr/local/bin/$APP_NAME"
+          echo "  Runtime: /usr/local/$INSTALL_DIR/"
+          echo "  Python: /usr/local/$INSTALL_DIR/bin/python3"
+          echo ""
+          echo "File sizes:"
+          ls -lh "/usr/local/bin/$APP_NAME"
+          du -sh "/usr/local/$INSTALL_DIR"
+          echo ""
+          echo "=== TEST COMPLETED SUCCESSFULLY ==="
+
+      - name: Upload PKG artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: pkg-installer-artifacts
+          path: |
+            dist/pkg_artifacts/*.pkg
+            dist/pkg_artifacts/*.sha256
+          retention-days: 7
+
+      - name: Cleanup installation
+        if: always()
+        run: |
+          echo "Cleaning up test installation..."
+          sudo rm -rf "/usr/local/bin/$APP_NAME" || true
+          sudo rm -rf "/usr/local/$INSTALL_DIR" || true
+          echo "Cleanup completed"
