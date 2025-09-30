@@ -1,0 +1,270 @@
+name: (pkgnew installer) - homebrew update
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to sync to the tap (e.g. 1.0.0). Leave empty to use latest pkgnew release."
+        required: false
+        type: string
+      force_update:
+        description: "Force update even if content appears unchanged"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+permissions:
+  contents: write
+
+jobs:
+  update-cask:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine target version
+        id: get_version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            # Extract version from release tag
+            RELEASE_TAG="${{ github.event.release.tag_name }}"
+            VERSION=${RELEASE_TAG#v}
+          elif [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            # Find latest release with pkgnew files
+            VERSION=$(gh release list --limit 10 --json tagName,publishedAt --jq 'sort_by(.publishedAt) | reverse | .[0].tagName')
+            VERSION=${VERSION#v}
+          fi
+          
+          if [ -z "$VERSION" ]; then
+            echo "Unable to resolve version" >&2
+            exit 1
+          fi
+          
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Synchronising Homebrew tap for PKGNEW version $VERSION"
+
+      - name: Download release packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          rm -f *.pkg
+          
+          echo "Downloading PKGNEW packages from release: v${VERSION}"
+          # Look for pkgnew-* packages in the release
+          gh release download "v${VERSION}" --pattern "pkgnew-*.pkg" || {
+            echo "No pkgnew-*.pkg files found in release v${VERSION}"
+            echo "Available files in release:"
+            gh release view "v${VERSION}" --json assets --jq '.assets[].name'
+            exit 1
+          }
+          
+          ls -al pkgnew-*.pkg
+
+      - name: Calculate SHA256 checksums
+        id: shas
+        run: |
+          set -euo pipefail
+          
+          ARM64_PKG=$(find . -maxdepth 1 -name 'pkgnew-*.pkg' | grep -E '(arm64|aarch64)\.pkg$' | head -1)
+          X86_PKG=$(find . -maxdepth 1 -name 'pkgnew-*.pkg' | grep -E 'x86_64\.pkg$' | head -1)
+          
+          if [ -z "$ARM64_PKG" ] || [ -z "$X86_PKG" ]; then
+            echo "Expected both arm64 and x86_64 pkgnew packages" >&2
+            echo "Available packages:"
+            ls -al pkgnew-*.pkg
+            exit 1
+          fi
+          
+          ARM64_SHA=$(shasum -a 256 "$ARM64_PKG" | cut -d' ' -f1)
+          X86_SHA=$(shasum -a 256 "$X86_PKG" | cut -d' ' -f1)
+          
+          echo "arm64_filename=$(basename "$ARM64_PKG")" >> "$GITHUB_OUTPUT"
+          echo "x86_filename=$(basename "$X86_PKG")" >> "$GITHUB_OUTPUT"
+          echo "arm64_sha=$ARM64_SHA" >> "$GITHUB_OUTPUT"
+          echo "x86_sha=$X86_SHA" >> "$GITHUB_OUTPUT"
+          
+          echo "Checksums calculated:"
+          echo "  arm64: $ARM64_PKG -> $ARM64_SHA"
+          echo "  x86_64: $X86_PKG -> $X86_SHA"
+
+      - name: Check out Homebrew tap repository
+        uses: actions/checkout@v4
+        with:
+          repository: naga-nandyala/homebrew-mycli-app
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          persist-credentials: false
+          path: homebrew-tap
+
+      - name: Configure tap push credentials
+        run: |
+          TAP_PAT="${{ secrets.HOMEBREW_TAP_TOKEN }}"
+          if [ -z "$TAP_PAT" ]; then
+            echo "HOMEBREW_TAP_TOKEN is required to push to naga-nandyala/homebrew-mycli-app." >&2
+            echo "Create a fine-grained personal access token with repo:write and add it as HOMEBREW_TAP_TOKEN." >&2
+            exit 1
+          fi
+          cd homebrew-tap
+          git remote set-url origin "https://x-access-token:${TAP_PAT}@github.com/naga-nandyala/homebrew-mycli-app.git"
+
+      - name: Update cask file for pkgnew
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.get_version.outputs.version }}"
+          ARM64_SHA="${{ steps.shas.outputs.arm64_sha }}"
+          X86_SHA="${{ steps.shas.outputs.x86_sha }}"
+          ARM64_FILE="${{ steps.shas.outputs.arm64_filename }}"
+          X86_FILE="${{ steps.shas.outputs.x86_filename }}"
+
+          cd homebrew-tap
+          mkdir -p Casks
+          
+          # Use regular release tag format
+          RELEASE_TAG="v${VERSION}"
+          
+          cat > Casks/pkgnew-app-pj2.rb << 'CASK_EOF'
+          # NOTE: Auto-generated by naga-nandyala/pj2 pkgnew workflow. Do not edit manually.
+          cask "pkgnew-app-pj2" do
+            version "__VERSION__"
+
+            on_arm do
+              sha256 "__ARM64_SHA__"
+              url "https://github.com/naga-nandyala/pj2/releases/download/__RELEASE_TAG__/__ARM64_FILE__"
+            end
+
+            on_intel do
+              sha256 "__X86_SHA__"
+              url "https://github.com/naga-nandyala/pj2/releases/download/__RELEASE_TAG__/__X86_FILE__"
+            end
+
+            name "MyCLI App (PKGNEW Enhanced Installer)"
+            desc "Azure-inspired CLI with enhanced macOS installer (productbuild)"
+            homepage "https://github.com/naga-nandyala/pj2"
+
+            depends_on macos: ">= :catalina"
+
+            on_arm do
+              pkg "__ARM64_FILE__"
+            end
+
+            on_intel do
+              pkg "__X86_FILE__"
+            end
+
+            uninstall pkgutil: "com.naga-nandyala.mycli"
+
+            caveats <<~EOS
+              MyCLI (PKGNEW Enhanced) installs directly to system locations:
+                • Executable: /usr/local/bin/mycli
+                • Runtime: /usr/local/libexec/mycli-venv/
+
+              This is the enhanced version built with productbuild for 
+              professional installer experience with custom UI.
+
+              Basic usage:
+                mycli --version
+                mycli login
+                mycli status
+
+              To uninstall manually:
+                sudo rm -f /usr/local/bin/mycli
+                sudo rm -rf /usr/local/libexec/mycli-venv
+
+              For the simple PKG version:
+                brew install --cask naga-nandyala/mycli-app/mycli-app-pkg-pj2
+              
+              For the venv bundle version:
+                brew install --cask naga-nandyala/mycli-app/mycli-app-venv-pj2
+            EOS
+          end
+          CASK_EOF
+
+          # Perform substitutions
+          sed -i.bak "s/__VERSION__/$VERSION/g" Casks/pkgnew-app-pj2.rb
+          sed -i.bak "s/__ARM64_SHA__/$ARM64_SHA/g" Casks/pkgnew-app-pj2.rb
+          sed -i.bak "s/__X86_SHA__/$X86_SHA/g" Casks/pkgnew-app-pj2.rb
+          sed -i.bak "s/__ARM64_FILE__/$ARM64_FILE/g" Casks/pkgnew-app-pj2.rb
+          sed -i.bak "s/__X86_FILE__/$X86_FILE/g" Casks/pkgnew-app-pj2.rb
+          sed -i.bak "s/__RELEASE_TAG__/$RELEASE_TAG/g" Casks/pkgnew-app-pj2.rb
+          rm -f Casks/pkgnew-app-pj2.rb.bak
+
+          if [ "${{ github.event.inputs.force_update }}" = "true" ]; then
+            echo "# Force updated: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> Casks/pkgnew-app-pj2.rb
+          fi
+
+          # Verify no placeholders remain
+          if grep -q '__' Casks/pkgnew-app-pj2.rb; then
+            echo "ERROR: Placeholder substitution failed" >&2
+            sed -n '1,50p' Casks/pkgnew-app-pj2.rb
+            exit 1
+          fi
+
+          # Validate Ruby syntax
+          if command -v ruby >/dev/null 2>&1; then
+            ruby -c Casks/pkgnew-app-pj2.rb
+          else
+            echo "Ruby not available for syntax check, skipping validation"
+          fi
+          
+          echo "Generated pkgnew cask file:"
+          head -50 Casks/pkgnew-app-pj2.rb
+
+      - name: Show pending changes
+        run: |
+          cd homebrew-tap
+          git add -N Casks/pkgnew-app-pj2.rb || true
+          echo '--- PKGNEW CASK DIFF ---'
+          git diff --color=always Casks/pkgnew-app-pj2.rb || true
+          echo '--- END DIFF ---'
+
+      - name: Commit and push
+        env:
+          VERSION: ${{ steps.get_version.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          cd homebrew-tap
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          
+          git add Casks/pkgnew-app-pj2.rb
+          
+          if git diff --cached --quiet; then
+            if [ "${{ github.event.inputs.force_update }}" = "true" ]; then
+              echo "No changes detected but force_update requested"
+              echo "# Forced update: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> Casks/pkgnew-app-pj2.rb
+              git add Casks/pkgnew-app-pj2.rb
+            else
+              echo "PKGNEW cask already up to date for version $VERSION"
+              exit 0
+            fi
+          fi
+          
+          git commit -m "Update pkgnew-app-pj2 cask to $VERSION (auto-generated)"
+          git push origin main
+          
+          echo "✅ Homebrew PKGNEW cask updated successfully"
+
+      - name: Summary
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          echo "🎉 PKGNEW Cask Update Complete!"
+          echo ""
+          echo "Updated cask: pkgnew-app-pj2"
+          echo "Version: $VERSION"
+          echo "Repository: naga-nandyala/homebrew-mycli-app"
+          echo ""
+          echo "Users can now install with:"
+          echo "  brew tap naga-nandyala/mycli-app"
+          echo "  brew install --cask pkgnew-app-pj2"

@@ -1,4 +1,4 @@
-name: Build PKG Installer (Enhanced)
+name: (pkgnew installer) - release
 
 on:
     workflow_dispatch:
@@ -122,7 +122,7 @@ jobs:
                   echo "Using extras: $EXTRAS"
 
                   # Run the build with verbose output and specified extras
-                  python scripts/build_pkg_installer_new.py --platform-tag ${{ matrix.platform_tag }} --extras "$EXTRAS" $EXTRA_ARGS
+                  python scripts/build_pkgnew_installer.py --platform-tag ${{ matrix.platform_tag }} --extras "$EXTRAS" $EXTRA_ARGS
 
             - name: Debug PKG contents
               run: |
@@ -342,7 +342,7 @@ jobs:
                   echo "- **Version**: \`${{ inputs.version || 'auto-detected' }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- **Extras**: \`${{ inputs.extras || 'broker (default)' }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- **Build Method**: ${{ inputs.use_distribution && 'productbuild (distribution)' || 'pkgbuild (component)' }}" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Script Used**: \`build_pkg_installer_new.py\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Script Used**: \`build_pkgnew_installer.py\`" >> $GITHUB_STEP_SUMMARY
                   echo "- **Create Release**: ${{ inputs.create_release }}" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "## Build Status" >> $GITHUB_STEP_SUMMARY
