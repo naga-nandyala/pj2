@@ -91,6 +91,16 @@ jobs:
                     echo "   Size: $(du -sh /usr/local/libexec/mycli-venv | cut -f1)"
                     echo "   Python executable:"
                     ls -la /usr/local/libexec/mycli-venv/bin/python* 2>/dev/null | head -3
+                    echo ""
+                    echo "   Directory structure (2 levels):"
+                    tree /usr/local/libexec/mycli-venv -L 2 2>/dev/null || find /usr/local/libexec/mycli-venv -maxdepth 2 -type d | head -20
+                    echo ""
+                    echo "   Key subdirectories:"
+                    echo "   - bin/: $(ls /usr/local/libexec/mycli-venv/bin/ | wc -l) files"
+                    echo "   - lib/: $(ls /usr/local/libexec/mycli-venv/lib/ 2>/dev/null | wc -l) items"
+                    if [ -d /usr/local/libexec/mycli-venv/lib/python3.12/site-packages ]; then
+                      echo "   - site-packages/: $(ls /usr/local/libexec/mycli-venv/lib/python3.12/site-packages/ | wc -l) packages"
+                    fi
                   else
                     echo "❌ Runtime environment NOT found at /usr/local/libexec/mycli-venv"
                     exit 1
@@ -110,6 +120,25 @@ jobs:
                   echo "4. Package manager records:"
                   echo "Installed packages matching mycli:"
                   pkgutil --pkgs | grep -i mycli || echo "No package records found"
+
+                  echo ""
+                  echo "5. Installation file structure overview:"
+                  echo "/usr/local structure (relevant parts):"
+                  echo "├── bin/"
+                  ls -la /usr/local/bin/mycli* 2>/dev/null || echo "   (no mycli files in bin/)"
+                  echo "└── libexec/"
+                  if [ -d /usr/local/libexec/mycli-venv ]; then
+                    echo "    └── mycli-venv/"
+                    echo "        ├── bin/ ($(ls /usr/local/libexec/mycli-venv/bin/ | wc -l) files)"
+                    echo "        ├── lib/"
+                    if [ -d /usr/local/libexec/mycli-venv/lib/python3.12 ]; then
+                      echo "        │   └── python3.12/"
+                      echo "        │       └── site-packages/ ($(ls /usr/local/libexec/mycli-venv/lib/python3.12/site-packages/ | wc -l) packages)"
+                    fi
+                    echo "        └── other files: $(find /usr/local/libexec/mycli-venv -maxdepth 1 -type f | wc -l)"
+                  else
+                    echo "   (no mycli-venv directory)"
+                  fi
 
             - name: Test executable functionality
               run: |
