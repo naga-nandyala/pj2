@@ -156,7 +156,7 @@ jobs:
                   EOF
 
             - name: Upload certificate artifacts
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                   name: self-signed-certificate-info
                   path: ~/cert-temp/CERTIFICATE_INFO.txt
