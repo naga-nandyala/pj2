@@ -150,18 +150,18 @@ jobs:
 
                   # Import certificate
                   echo "$APPLE_SIGNING_CERTIFICATE" | base64 --decode > certificate.p12
-                  
+
                   echo "=== Importing certificate ==="
                   # Verify P12 file was created
                   ls -lh certificate.p12
-                  
+
                   # Import with -A flag to allow all apps to access it
                   security import certificate.p12 -k "$KEYCHAIN_PATH" \
                     -P "$APPLE_CERT_PASSWORD" \
                     -T /usr/bin/codesign \
                     -T /usr/bin/productsign \
                     -A
-                  
+
                   echo "Import exit code: $?"
 
                   # Set keychain to be used for signing
@@ -169,7 +169,7 @@ jobs:
                   security default-keychain -s "$KEYCHAIN_PATH"
                   security set-key-partition-list -S apple-tool:,apple: \
                     -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-                  
+
                   echo ""
                   echo "=== Keychain Contents ==="
                   security dump-keychain "$KEYCHAIN_PATH" | grep -A 5 "keychain:" | head -20
@@ -180,24 +180,43 @@ jobs:
                   echo ""
                   echo "=== All Identities (including self-signed) ==="
                   security find-identity -v
+                  echo ""
+                  
+                  # Try to find certificate by dumping keychain and looking for SHA-1
+                  echo "=== Searching keychain for certificates ==="
+                  security dump-keychain "$KEYCHAIN_PATH" | grep -B 5 -A 5 "Developer ID Installer" || echo "No Developer ID Installer found in dump"
+                  echo ""
 
-                  # Get certificate name - try Developer ID first
-                  CERT_NAME=$(security find-identity -v | \
-                    grep "Developer ID Installer" | head -1 | \
-                    sed 's/.*"\(.*\)".*/\1/')
-
-                  # Fallback to any certificate with "Installer" in the name
-                  if [ -z "$CERT_NAME" ]; then
+                  # Get certificate SHA-1 hash from keychain
+                  CERT_HASH=$(security find-certificate -a -Z "$KEYCHAIN_PATH" 2>/dev/null | \
+                    grep -A 1 "Developer ID Installer" | \
+                    grep "SHA-1" | \
+                    awk '{print $NF}')
+                  
+                  if [ -n "$CERT_HASH" ]; then
+                    echo "Found certificate with SHA-1: $CERT_HASH"
+                    CERT_NAME="$CERT_HASH"
+                  else
+                    echo "Could not find certificate by hash, trying by name..."
+                    
+                    # Get certificate name - try Developer ID first
                     CERT_NAME=$(security find-identity -v | \
-                      grep -i "installer" | head -1 | \
+                      grep "Developer ID Installer" | head -1 | \
                       sed 's/.*"\(.*\)".*/\1/')
-                  fi
 
-                  # Last resort: use first available identity
-                  if [ -z "$CERT_NAME" ]; then
-                    CERT_NAME=$(security find-identity -v | \
-                      grep -v "0 valid identities found" | \
-                      head -1 | sed 's/.*"\(.*\)".*/\1/')
+                    # Fallback to any certificate with "Installer" in the name
+                    if [ -z "$CERT_NAME" ]; then
+                      CERT_NAME=$(security find-identity -v | \
+                        grep -i "installer" | head -1 | \
+                        sed 's/.*"\(.*\)".*/\1/')
+                    fi
+
+                    # Last resort: use first available identity
+                    if [ -z "$CERT_NAME" ]; then
+                      CERT_NAME=$(security find-identity -v | \
+                        grep -v "0 valid identities found" | \
+                        head -1 | sed 's/.*"\(.*\)".*/\1/')
+                    fi
                   fi
 
                   if [ -z "$CERT_NAME" ]; then
