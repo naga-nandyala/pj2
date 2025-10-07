@@ -90,21 +90,43 @@ jobs:
                   security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
                   security set-keychain-settings -lut 21600 "$KEYCHAIN"
 
-                  # Import certificate
+                  # Verify P12 file exists
+                  echo "P12 file info:"
+                  ls -lh certificate.p12
+                  echo ""
+
+                  # Import certificate with -A flag
+                  echo "Importing certificate..."
                   security import certificate.p12 -k "$KEYCHAIN" \
                     -P "$CERT_PASSWORD" \
-                    -T /usr/bin/productsign
+                    -T /usr/bin/productsign \
+                    -A
+                  
+                  echo "Import exit code: $?"
+                  echo ""
 
                   security list-keychains -d user -s "$KEYCHAIN"
                   security set-key-partition-list -S apple-tool:,apple: \
                     -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
 
                   echo ""
-                  echo "Available signing identities:"
-                  security find-identity -v -p codesigning
-
+                  echo "=== Keychain Contents ==="
+                  security dump-keychain "$KEYCHAIN" | grep -A 3 "class:" | head -30
                   echo ""
-                  echo "✅ Certificate can be used for signing!"
+
+                  echo "=== Available signing identities (trusted only) ==="
+                  security find-identity -v -p codesigning
+                  echo ""
+
+                  echo "=== All identities in keychain ==="
+                  security find-identity -v
+                  echo ""
+
+                  if security find-identity -v | grep -q "Developer ID Installer"; then
+                      echo "✅ Certificate imported successfully and can be used for signing!"
+                  else
+                      echo "⚠️  Certificate imported but may not be recognized for signing"
+                  fi
 
                   # Cleanup
                   security delete-keychain "$KEYCHAIN"
