@@ -1,0 +1,309 @@
+name: (pkgsign installer) - homebrew test
+
+on:
+    release:
+        types: [published]
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "Version to test (e.g. 1.0.0 - without 'v' prefix). Defaults to latest pkg release."
+                required: false
+                type: string
+
+jobs:
+    test-pkg-cask:
+        strategy:
+            matrix:
+                include:
+                    - runner: macos-latest
+                      arch: arm64
+                    - runner: macos-13
+                      arch: x86_64
+        runs-on: ${{ matrix.runner }}
+        steps:
+            - name: Set up Homebrew
+              uses: Homebrew/actions/setup-homebrew@master
+
+            - name: Environment info
+              run: |
+                  echo "=== Environment Information ==="
+                  echo "Runner: ${{ matrix.runner }}"
+                  echo "Expected arch: ${{ matrix.arch }}"
+                  echo "Actual arch: $(uname -m)"
+                  echo "macOS version: $(sw_vers -productVersion)"
+                  echo "Homebrew version: $(brew --version | head -n1)"
+                  echo "Available space: $(df -h / | tail -1 | awk '{print $4}')"
+
+            - name: Clean previous installations
+              run: |
+                  echo "=== Cleaning Previous Installations ==="
+
+                  # Remove any existing Homebrew installations
+                  brew uninstall --cask mycli-app-pkgsign-pj2 2>/dev/null || true
+                  brew untap naga-nandyala/mycli-app 2>/dev/null || true
+
+                  # Remove any manual installations
+                  sudo rm -f /usr/local/bin/mycli 2>/dev/null || true
+                  sudo rm -rf /usr/local/microsoft/mycli 2>/dev/null || true
+
+                  # Verify cleanup
+                  if command -v mycli >/dev/null 2>&1; then
+                    echo "⚠️  Existing mycli installation found:"
+                    which mycli
+                  else
+                    echo "✅ No existing mycli installations found"
+                  fi
+
+            - name: Add tap and install cask
+              run: |
+                  echo "=== Installing via Homebrew Cask ==="
+
+                  # Add the tap
+                  brew tap naga-nandyala/mycli-app
+                  brew update
+
+                  # Show available casks
+                  echo "Available casks:"
+                  brew search mycli-app || true
+
+                  # Install the PKG cask
+                  echo "Installing mycli-app-pkgsign-pj2..."
+                  brew install --cask mycli-app-pkgsign-pj2
+
+            - name: Verify installation structure
+              run: |
+                  echo "=== Installation Structure Verification ==="
+
+                  # Check system installation paths
+                  echo "1. Executable location:"
+                  if [ -f /usr/local/bin/mycli ]; then
+                    ls -la /usr/local/bin/mycli
+                    echo "✅ Executable found at /usr/local/bin/mycli"
+                  else
+                    echo "❌ Executable not found at /usr/local/bin/mycli"
+                    exit 1
+                  fi
+
+                  echo ""
+                  echo "2. Runtime environment:"
+                  if [ -d /usr/local/microsoft/mycli ]; then
+                    echo "✅ Runtime found at /usr/local/microsoft/mycli"
+                    echo "Contents:"
+                    ls -la /usr/local/microsoft/mycli/
+                    echo ""
+                    echo "Python executable:"
+                    ls -la /usr/local/microsoft/mycli/bin/python3
+                    echo ""
+                    echo "Site-packages:"
+                    if [ -d /usr/local/microsoft/mycli/lib/python*/site-packages/mycli_app ]; then
+                      echo "✅ mycli_app package found"
+                      ls -la /usr/local/microsoft/mycli/lib/python*/site-packages/ | grep mycli
+                    else
+                      echo "⚠️  mycli_app package structure check"
+                      find /usr/local/microsoft/mycli -name "mycli_app" -type d
+                    fi
+                  else
+                    echo "❌ Runtime not found at /usr/local/microsoft/mycli"
+                    exit 1
+                  fi
+
+                  echo ""
+                  echo "3. PATH availability:"
+                  if command -v mycli >/dev/null 2>&1; then
+                    echo "✅ mycli available in PATH: $(which mycli)"
+                  else
+                    echo "❌ mycli not available in PATH"
+                    echo "PATH: $PATH"
+                    exit 1
+                  fi
+
+                  echo ""
+                  echo "4. Package manager records:"
+                  echo "Installed packages matching mycli:"
+                  pkgutil --pkgs | grep -i mycli || echo "No package records found"
+
+                  echo ""
+                  echo "5. Installation file structure overview:"
+                  echo "/usr/local structure (relevant parts):"
+                  echo "├── bin/"
+                  ls -la /usr/local/bin/mycli* 2>/dev/null || echo "   (no mycli files in bin/)"
+                  echo "└── libexec/"
+                  if [ -d /usr/local/microsoft/mycli ]; then
+                    echo "    └── mycli/"
+                    echo "        ├── bin/"
+                    ls -la /usr/local/microsoft/mycli/bin/ | head -5
+                    echo "        ├── lib/"
+                    echo "        │   └── python3.x/"
+                    echo "        │       └── site-packages/ ($(find /usr/local/microsoft/mycli/lib -name site-packages -type d | wc -l) found)"
+                    echo "        └── other files: $(find /usr/local/microsoft/mycli -maxdepth 1 -type f | wc -l)"
+                  else
+                    echo "   (no mycli-venv directory)"
+                  fi
+
+            - name: Test executable functionality
+              run: |
+                  echo "=== Functional Testing ==="
+
+                  # Test basic execution
+                  echo "1. Version check:"
+                  mycli --version
+
+                  echo ""
+                  echo "2. Help output:"
+                  mycli --help | head -10
+
+                  echo ""
+                  echo "3. Status command:"
+                  mycli status || true
+
+                  echo ""
+                  echo "4. Python module execution (direct):"
+                  /usr/local/microsoft/mycli/bin/python3 -m mycli_app --version
+
+            - name: Test launcher script robustness
+              run: |
+                  echo "=== Launcher Script Testing ==="
+
+                  # Test script contents
+                  echo "1. Launcher script content:"
+                  head -20 /usr/local/bin/mycli
+
+                  echo ""
+                  echo "2. Script permissions:"
+                  ls -la /usr/local/bin/mycli
+
+                  echo ""
+                  echo "3. Python resolution test:"
+                  # Test what Python the launcher finds
+                  echo 'Testing Python resolution in launcher context...'
+                  bash -c 'VENV_DIR="/usr/local/microsoft/mycli"; echo "Python found: ${VENV_DIR}/bin/python3"; ls -la "${VENV_DIR}/bin/python3"'
+
+            - name: Test installation integrity
+              run: |
+                  echo "=== Installation Integrity Check ==="
+
+                  # Check for common issues
+                  echo "1. Import test:"
+                  /usr/local/microsoft/mycli/bin/python3 -c "import mycli_app; print('✅ Module imports successfully')"
+
+                  echo ""
+                  echo "2. Dependency check (sample):"
+                  /usr/local/microsoft/mycli/bin/python3 -c "import click, colorama; print('✅ Basic dependencies available')"
+
+                  echo ""
+                  echo "3. Azure dependencies (if broker extras included):"
+                  if /usr/local/microsoft/mycli/bin/python3 -c "import azure.identity" 2>/dev/null; then
+                    echo "✅ Azure dependencies available"
+                  else
+                    echo "⚠️  Azure dependencies not available (may be expected)"
+                  fi
+
+                  echo ""
+                  echo "4. Virtual environment integrity:"
+                  /usr/local/microsoft/mycli/bin/python3 -c "import sys; print(f'Python: {sys.version}'); print(f'Executable: {sys.executable}')"
+
+            - name: Verify code signature (if signed)
+              run: |
+                  echo "=== Code Signature Verification ==="
+
+                  # Check if the package was signed
+                  echo "Checking package signature..."
+                  PKG_ID=$(pkgutil --pkgs | grep -i mycli | head -1)
+                  if [ -n "$PKG_ID" ]; then
+                    echo "Package ID: $PKG_ID"
+                    pkgutil --pkg-info "$PKG_ID" || true
+                  fi
+
+                  # Check executable signature
+                  if [ -f /usr/local/bin/mycli ]; then
+                    echo ""
+                    echo "Checking executable signature:"
+                    codesign -dv /usr/local/bin/mycli 2>&1 || echo "⚠️  Executable not signed (may be expected)"
+                  fi
+
+                  # Check Python executable signature
+                  if [ -f /usr/local/microsoft/mycli/bin/python3 ]; then
+                    echo ""
+                    echo "Checking Python executable signature:"
+                    codesign -dv /usr/local/microsoft/mycli/bin/python3 2>&1 || echo "⚠️  Python not signed (may be expected)"
+                  fi
+
+            - name: Test with different working directories
+              run: |
+                  echo "=== Working Directory Independence Test ==="
+
+                  # Test from different directories
+                  cd /tmp
+                  echo "From /tmp:"
+                  mycli --version
+
+                  cd /Users
+                  echo "From /Users:"
+                  mycli --version
+
+                  cd "$HOME"
+                  echo "From home directory:"
+                  mycli --version
+
+                  echo "✅ Works from different working directories"
+
+            - name: Performance check
+              run: |
+                  echo "=== Performance Check ==="
+
+                  echo "Testing startup time..."
+                  time mycli --version >/dev/null
+
+                  echo ""
+                  echo "Installation size:"
+                  echo "Total installation: $(du -sh /usr/local/microsoft/mycli | cut -f1)"
+                  echo "Executable: $(du -sh /usr/local/bin/mycli | cut -f1)"
+
+            - name: Test authentication workflow (non-blocking)
+              run: |
+                  echo "=== Authentication Test (Non-blocking) ==="
+
+                  # Test broker authentication if available (but don't fail if it doesn't work in CI)
+                  set +e
+                  mycli login --force-broker 2>&1 | head -20
+                  echo ""
+                  echo "Authentication test completed (errors expected in CI environment)"
+                  set -e
+
+            - name: Cleanup and uninstall test
+              run: |
+                  echo "=== Cleanup Test ==="
+
+                  # Uninstall via Homebrew
+                  echo "Uninstalling via Homebrew..."
+                  brew uninstall --cask mycli-app-pkgsign-pj2
+
+                  echo ""
+                  echo "Verifying removal:"
+                  if command -v mycli >/dev/null 2>&1; then
+                    echo "⚠️  mycli still available after uninstall:"
+                    which mycli
+                    ls -la "$(which mycli)" || true
+                  else
+                    echo "✅ mycli successfully removed from PATH"
+                  fi
+
+                  if [ -f /usr/local/bin/mycli ]; then
+                    echo "❌ Executable still exists at /usr/local/bin/mycli"
+                  else
+                    echo "✅ Executable successfully removed"
+                  fi
+
+                  if [ -d /usr/local/microsoft/mycli ]; then
+                    echo "❌ Runtime still exists at /usr/local/microsoft/mycli"
+                  else
+                    echo "✅ Runtime successfully removed"
+                  fi
+
+            - name: Test summary
+              if: always()
+              run: |
+                  echo "=== Test Summary ==="
+                  echo "Platform: ${{ matrix.runner }} (${{ matrix.arch }})"
+                  echo "Installation method: Homebrew Cask (Signed PKG)"
+                  echo "Test completed at: $(date)"

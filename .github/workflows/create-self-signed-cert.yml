@@ -1,0 +1,179 @@
+name: Create Self-Signed Certificate (Learning)
+
+on:
+    workflow_dispatch: # Manual trigger only
+
+jobs:
+    create-cert:
+        runs-on: macos-latest
+
+        steps:
+            - name: Create self-signed certificate
+              run: |
+                  echo "=== Creating Self-Signed Certificate ==="
+
+                  # Create temporary directory
+                  mkdir -p ~/cert-temp
+                  cd ~/cert-temp
+
+                  # Generate private key
+                  openssl genrsa -out private-key.pem 2048
+
+                  # Create certificate signing request
+                  openssl req -new -key private-key.pem -out cert-request.csr \
+                    -subj "/C=US/ST=State/L=City/O=MyOrg/OU=Dev/CN=My Test Installer Certificate"
+
+                  # Self-sign the certificate (valid for 1 year)
+                  openssl x509 -req -days 365 -in cert-request.csr \
+                    -signkey private-key.pem -out certificate.pem
+
+                  # Create PKCS12 bundle (.p12) with password
+                  CERT_PASSWORD="test123"
+                  openssl pkcs12 -export -out certificate.p12 \
+                    -inkey private-key.pem \
+                    -in certificate.pem \
+                    -password pass:$CERT_PASSWORD
+
+                  # Convert to base64 (for GitHub secrets)
+                  base64 -i certificate.p12 -o certificate-base64.txt
+
+                  echo ""
+                  echo "=== Certificate Created Successfully ==="
+                  echo ""
+                  echo "Certificate Details:"
+                  openssl x509 -in certificate.pem -text -noout | grep -A 2 "Subject:"
+
+                  echo ""
+                  echo "=== IMPORTANT: Copy these values to GitHub Secrets ==="
+                  echo ""
+                  echo "Secret Name: APPLE_SIGNING_CERTIFICATE"
+                  echo "Secret Value (base64):"
+                  cat certificate-base64.txt
+                  echo ""
+                  echo "Secret Name: APPLE_CERT_PASSWORD"
+                  echo "Secret Value: test123"
+                  echo ""
+
+            - name: Test certificate import
+              run: |
+                  cd ~/cert-temp
+
+                  echo "=== Testing Certificate Import ==="
+
+                  # Create temporary keychain
+                  KEYCHAIN="$RUNNER_TEMP/test.keychain"
+                  KEYCHAIN_PASSWORD="temp123"
+                  CERT_PASSWORD="test123"
+
+                  security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+                  security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+                  security set-keychain-settings -lut 21600 "$KEYCHAIN"
+
+                  # Import certificate
+                  security import certificate.p12 -k "$KEYCHAIN" \
+                    -P "$CERT_PASSWORD" \
+                    -T /usr/bin/productsign
+
+                  security list-keychains -d user -s "$KEYCHAIN"
+                  security set-key-partition-list -S apple-tool:,apple: \
+                    -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+                  echo ""
+                  echo "Available signing identities:"
+                  security find-identity -v -p codesigning
+
+                  echo ""
+                  echo "✅ Certificate can be used for signing!"
+
+                  # Cleanup
+                  security delete-keychain "$KEYCHAIN"
+
+            - name: Display next steps
+              run: |
+                  echo ""
+                  echo "=========================================="
+                  echo "=== COPY THE VALUES ABOVE TO GITHUB ====="
+                  echo "=========================================="
+                  echo ""
+                  echo "Next Steps:"
+                  echo "1. Scroll up and copy the base64 value (very long string)"
+                  echo "2. Go to: https://github.com/${{ github.repository }}/settings/secrets/actions"
+                  echo "3. Click 'New repository secret'"
+                  echo "4. Add secret: APPLE_SIGNING_CERTIFICATE = <paste base64 value>"
+                  echo "5. Add secret: APPLE_CERT_PASSWORD = test123"
+                  echo "6. Run the 'pkgsign-build-installer.yml' workflow"
+                  echo ""
+                  echo "Note: This is a SELF-SIGNED certificate for LEARNING."
+                  echo "macOS will still show Gatekeeper warnings."
+                  echo "For production, use Apple Developer ID certificate."
+                  echo ""
+
+            - name: Save certificate info
+              run: |
+                  cd ~/cert-temp
+
+                  cat > CERTIFICATE_INFO.txt << 'EOF'
+                  Self-Signed Certificate Information
+                  ===================================
+
+                  Created: $(date)
+                  Valid for: 365 days
+                  Password: test123
+
+                  Subject: CN=My Test Installer Certificate
+
+                  GitHub Secrets to Create:
+                  -------------------------
+                  1. APPLE_SIGNING_CERTIFICATE = <contents of certificate-base64.txt>
+                  2. APPLE_CERT_PASSWORD = test123
+
+                  Note: This is a SELF-SIGNED certificate for LEARNING only.
+                  macOS will still show Gatekeeper warnings.
+                  For production, use Apple Developer ID certificate.
+
+                  Certificate Purpose:
+                  -------------------
+                  - Learn PKG signing mechanics
+                  - Test CI/CD workflows
+                  - Understand certificate chains
+                  - Practice before spending $99 on Apple Developer Program
+
+                  This certificate is NOT suitable for:
+                  ------------------------------------
+                  - Public distribution
+                  - Production releases
+                  - Removing Gatekeeper warnings
+                  - Homebrew public taps
+
+                  Next Phase:
+                  -----------
+                  When ready for production:
+                  1. Enroll in Apple Developer Program ($99/year)
+                  2. Request Developer ID Installer certificate
+                  3. Export and encode to base64
+                  4. Replace these GitHub secrets with production values
+                  5. Same workflows will automatically use production cert!
+                  EOF
+
+            - name: Upload certificate artifacts
+              uses: actions/upload-artifact@v3
+              with:
+                  name: self-signed-certificate-info
+                  path: ~/cert-temp/CERTIFICATE_INFO.txt
+                  retention-days: 7
+
+            - name: Security reminder
+              run: |
+                  echo ""
+                  echo "⚠️  SECURITY REMINDER ⚠️"
+                  echo ""
+                  echo "This workflow created a self-signed certificate for LEARNING."
+                  echo "The certificate and private key are in the logs above."
+                  echo ""
+                  echo "For PRODUCTION:"
+                  echo "- Use Apple Developer ID certificate"
+                  echo "- Never share .p12 files publicly"
+                  echo "- Never commit certificates to git"
+                  echo "- Store only in GitHub Secrets"
+                  echo "- Rotate secrets periodically"
+                  echo ""

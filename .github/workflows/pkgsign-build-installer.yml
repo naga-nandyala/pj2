@@ -1,0 +1,475 @@
+name: (pkgsign enhanced installer) - release
+
+on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "Version to build (e.g., 2.0.0). If not provided, will use version from __init__.py"
+                required: false
+                type: string
+            create_release:
+                description: "Create GitHub release with built artifacts"
+                required: false
+                type: boolean
+                default: true
+
+permissions:
+    contents: write
+
+env:
+    PYTHON_VERSION: "3.12"
+
+jobs:
+    build-pkg:
+        name: Build PKG (${{ matrix.platform_tag }})
+        runs-on: ${{ matrix.runner }}
+
+        strategy:
+            matrix:
+                include:
+                    - platform_tag: macos-arm64
+                      runner: macos-latest
+                      arch: arm64
+                    - platform_tag: macos-x86_64
+                      runner: macos-13
+                      arch: x86_64
+
+        env:
+            VERSION: ${{ inputs.version }}
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                  python-version: ${{ env.PYTHON_VERSION }}
+
+            - name: Set VERSION environment variable
+              run: |
+                  if [ -n "${{ inputs.version }}" ]; then
+                    echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+                    echo "Using provided version: ${{ inputs.version }}"
+                  else
+                    VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print(__version__)")
+                    echo "VERSION=$VERSION" >> $GITHUB_ENV
+                    echo "Using version from __init__.py: $VERSION"
+                  fi
+
+            - name: Install Xcode Command Line Tools (if needed)
+              run: |
+                  # Check if pkgbuild is available
+                  if ! command -v pkgbuild >/dev/null 2>&1; then
+                    echo "Installing Xcode Command Line Tools..."
+                    xcode-select --install || true
+                    # Wait for installation
+                    until command -v pkgbuild >/dev/null 2>&1; do
+                      echo "Waiting for pkgbuild..."
+                      sleep 5
+                    done
+                  fi
+                  echo "pkgbuild found: $(which pkgbuild)"
+                  pkgbuild 2>&1 | head -5 || true
+
+            - name: Upgrade pip
+              run: python -m pip install --upgrade pip
+
+            - name: Create dist directory
+              run: mkdir -p dist/pkg_artifacts
+
+            - name: Build PKG installer (Enhanced)
+              run: |
+                  echo "=== Build Environment Check ==="
+                  pwd
+                  ls -la scripts/
+                  python --version
+
+                  echo "=== Python Path Check ==="
+                  python -c "import sys; print('Python path:', sys.path)"
+
+                  echo "=== Package Version Check ==="
+                  if [ -n "${{ inputs.version }}" ]; then
+                    echo "Using provided version: ${{ inputs.version }}"
+                  else
+                    echo "Detecting version from source..."
+                    python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print('Detected version:', __version__)" || echo "❌ Version detection failed"
+                  fi
+
+                  echo "=== Build Tools Check ==="
+                  which pkgbuild || (echo "❌ pkgbuild not found"; exit 1)
+                  which productbuild || (echo "❌ productbuild not found"; exit 1)
+
+                  echo "=== Starting PKG Build ==="
+                  echo "Building with productbuild (enhanced distribution package)"
+
+                  # Always use broker extras for full PKG functionality
+                  EXTRAS="broker"
+                  echo "Using extras: $EXTRAS"
+
+                  # Run the build with verbose output and specified extras
+                  python scripts/build_pkgnew_installer.py --platform-tag ${{ matrix.platform_tag }} --extras "$EXTRAS"
+
+            - name: Check signing credentials
+              id: check_signing
+              run: |
+                  if [ -n "${{ secrets.APPLE_SIGNING_CERTIFICATE }}" ] && \
+                     [ -n "${{ secrets.APPLE_CERT_PASSWORD }}" ]; then
+                    echo "signing_available=true" >> $GITHUB_OUTPUT
+                    echo "✅ Signing credentials found"
+                  else
+                    echo "signing_available=false" >> $GITHUB_OUTPUT
+                    echo "⚠️  Signing credentials not found - will build unsigned packages"
+                  fi
+
+            - name: Sign PKG installer
+              if: steps.check_signing.outputs.signing_available == 'true'
+              env:
+                  APPLE_SIGNING_CERTIFICATE: ${{ secrets.APPLE_SIGNING_CERTIFICATE }}
+                  APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+              run: |
+                  echo "=== Setting up Code Signing ==="
+
+                  # Get version for PKG filename
+                  if [ -n "${{ inputs.version }}" ]; then
+                    VERSION="${{ inputs.version }}"
+                  else
+                    VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print(__version__)")
+                  fi
+
+                  PKG_FILE="dist/pkg_artifacts/mycli-${VERSION}-${{ matrix.platform_tag }}.pkg"
+
+                  # Create temporary keychain
+                  KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+                  KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+                  # Create and configure keychain
+                  security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+                  security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+                  security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+                  # Import certificate
+                  echo "$APPLE_SIGNING_CERTIFICATE" | base64 --decode > certificate.p12
+                  security import certificate.p12 -k "$KEYCHAIN_PATH" \
+                    -P "$APPLE_CERT_PASSWORD" \
+                    -T /usr/bin/codesign \
+                    -T /usr/bin/productsign
+
+                  # Set keychain to be used for signing
+                  security list-keychains -d user -s "$KEYCHAIN_PATH"
+                  security default-keychain -s "$KEYCHAIN_PATH"
+                  security set-key-partition-list -S apple-tool:,apple: \
+                    -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+                  # List available signing identities
+                  echo "=== Available Signing Identities ==="
+                  security find-identity -v -p codesigning
+
+                  # Get certificate name
+                  CERT_NAME=$(security find-identity -v -p codesigning | \
+                    grep "Developer ID Installer" | head -1 | \
+                    sed 's/.*"\(.*\)".*/\1/')
+
+                  # Fallback to first available identity if no Developer ID found
+                  if [ -z "$CERT_NAME" ]; then
+                    CERT_NAME=$(security find-identity -v -p codesigning | \
+                      head -1 | sed 's/.*"\(.*\)".*/\1/')
+                  fi
+
+                  if [ -z "$CERT_NAME" ]; then
+                    echo "❌ No valid signing identity found"
+                    exit 1
+                  fi
+
+                  echo "Using certificate: $CERT_NAME"
+
+                  # Sign the package
+                  echo "=== Signing PKG ==="
+                  echo "Signing: $PKG_FILE"
+
+                  # Create backup of unsigned PKG
+                  cp "$PKG_FILE" "${PKG_FILE}.unsigned"
+
+                  # Sign the PKG (with timestamp if possible)
+                  if productsign --sign "$CERT_NAME" \
+                       --timestamp \
+                       "${PKG_FILE}.unsigned" \
+                       "$PKG_FILE" 2>/dev/null; then
+                    echo "✅ Signed with timestamp"
+                  else
+                    echo "⚠️  Timestamp failed, signing without timestamp..."
+                    productsign --sign "$CERT_NAME" \
+                      "${PKG_FILE}.unsigned" \
+                      "$PKG_FILE"
+                    echo "✅ Signed without timestamp"
+                  fi
+
+                  # Verify signature
+                  echo "=== Verifying Signature ==="
+                  pkgutil --check-signature "$PKG_FILE"
+
+                  # Cleanup
+                  rm -f "${PKG_FILE}.unsigned"
+                  rm -f certificate.p12
+                  security delete-keychain "$KEYCHAIN_PATH" || true
+
+                  echo "✅ Package signing completed successfully"
+
+            - name: Debug PKG contents
+              run: |
+                  echo "=== Post-Build Diagnostics ==="
+                  echo "Checking dist/pkg_artifacts directory:"
+                  ls -la dist/pkg_artifacts/
+
+                  echo "Finding all PKG files:"
+                  find dist/ -name "*.pkg" -exec ls -lh {} \;
+
+                  # Check what's inside the PKG
+                  PKG_FILES=$(find dist/pkg_artifacts -name "*.pkg")
+                  for pkg in $PKG_FILES; do
+                    echo ""
+                    echo "=== Analyzing PKG: $pkg ==="
+                    echo "File size: $(du -h "$pkg" | cut -f1)"
+                    echo "File type: $(file "$pkg")"
+                    echo ""
+                    echo "Package info:"
+                    pkgutil --pkg-info-plist "$pkg" 2>/dev/null | head -30 || echo "No pkg-info available"
+                    echo ""
+                    echo "Payload file count:"
+                    pkgutil --payload-files "$pkg" | wc -l
+                    echo ""
+                    echo "Sample payload files (first 20):"
+                    pkgutil --payload-files "$pkg" | head -20
+                    echo ""
+                    echo "Checking for Python files in payload:"
+                    pkgutil --payload-files "$pkg" | grep -E '\.(py|pyc)$' | wc -l || echo "0"
+                    echo ""
+                    echo "Checking for executable:"
+                    pkgutil --payload-files "$pkg" | grep -E 'bin/mycli' || echo "No mycli executable found"
+                    echo ""
+                    echo "Checking for site-packages:"
+                    pkgutil --payload-files "$pkg" | grep -c "site-packages" || echo "0"
+                  done
+
+            - name: Verify .pkg creation
+              working-directory: dist/pkg_artifacts
+              run: |
+                  # Get version from environment or detect it
+                  if [ -n "${{ inputs.version }}" ]; then
+                    VERSION="${{ inputs.version }}"
+                  else
+                    VERSION=$(python -c "import sys; sys.path.insert(0, '../src'); from mycli_app import __version__; print(__version__)")
+                  fi
+
+                  PKG_FILE="mycli-${VERSION}-${{ matrix.platform_tag }}.pkg"
+                  SHA_FILE="${PKG_FILE}.sha256"
+
+                  echo "=== PKG Build Verification ==="
+                  echo "Looking for: $PKG_FILE"
+                  echo "Available files:"
+                  ls -la
+
+                  if [ -f "$PKG_FILE" ]; then
+                    echo "✅ PKG file found: $PKG_FILE"
+                    echo "📦 Size: $(du -h "$PKG_FILE" | cut -f1)"
+                  else
+                    echo "❌ PKG file not found: $PKG_FILE"
+                    echo "Available .pkg files:"
+                    ls -la *.pkg || echo "No .pkg files found"
+                    exit 1
+                  fi
+
+                  if [ -f "$SHA_FILE" ]; then
+                    echo "✅ Checksum file found: $SHA_FILE"
+                    echo "🔍 Checksum: $(cat "$SHA_FILE")"
+                  else
+                    echo "❌ Checksum file not found: $SHA_FILE"
+                    exit 1
+                  fi
+
+            - name: Upload PKG artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: pkg-installer-${{ matrix.platform_tag }}
+                  path: |
+                      dist/pkg_artifacts/*.pkg
+                      dist/pkg_artifacts/*.sha256
+                  retention-days: 30
+
+            - name: Test PKG installation (dry run)
+              run: |
+                  # Get version from environment or detect it
+                  if [ -n "${{ inputs.version }}" ]; then
+                    VERSION="${{ inputs.version }}"
+                  else
+                    VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print(__version__)")
+                  fi
+
+                  PKG_FILE="dist/pkg_artifacts/mycli-${VERSION}-${{ matrix.platform_tag }}.pkg"
+
+                  echo "=== PKG Installation Test (Dry Run) ==="
+                  echo "Testing PKG file: $PKG_FILE"
+
+                  if [ ! -f "$PKG_FILE" ]; then
+                    echo "❌ PKG file not found: $PKG_FILE"
+                    echo "Available files:"
+                    ls -la dist/pkg_artifacts/
+                    exit 1
+                  fi
+
+                  echo "📋 PKG Signature Check:"
+                  if pkgutil --check-signature "$PKG_FILE"; then
+                    echo "✅ Package is signed"
+                  else
+                    echo "⚠️  Package is not signed (signing credentials were not available)"
+                  fi
+
+                  echo "📋 Package Contents Preview:"
+                  pkgutil --payload-files "$PKG_FILE" | head -20
+
+                  echo "📋 Package File Info:"
+                  file "$PKG_FILE"
+
+                  echo "📋 Package Size:"
+                  ls -lh "$PKG_FILE"
+
+                  echo "✅ PKG validation completed successfully!"
+
+    create-release:
+        name: Create GitHub Release
+        runs-on: ubuntu-latest
+        needs: build-pkg
+        if: ${{ inputs.create_release }}
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Set VERSION environment variable
+              run: |
+                  if [ -n "${{ inputs.version }}" ]; then
+                    echo "VERSION=${{ inputs.version }}" >> $GITHUB_ENV
+                    echo "Using provided version: ${{ inputs.version }}"
+                  else
+                    VERSION=$(python -c "import sys; sys.path.insert(0, 'src'); from mycli_app import __version__; print(__version__)")
+                    echo "VERSION=$VERSION" >> $GITHUB_ENV
+                    echo "Using version from __init__.py: $VERSION"
+                  fi
+
+            - name: Download all artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  path: release-artifacts
+
+            - name: Prepare release assets
+              run: |
+                  mkdir -p release
+                  VERSION="${{ env.VERSION }}"
+
+                  for arch in macos-arm64 macos-x86_64; do
+                    artifact_dir="release-artifacts/pkg-installer-${arch}"
+                    if [ -d "$artifact_dir" ]; then
+                      echo "Processing $arch artifacts..."
+                      pkg_path=$(find "$artifact_dir" -name "*.pkg" -type f)
+                      sha_path=$(find "$artifact_dir" -name "*.sha256" -type f)
+                      
+                      if [ -f "$pkg_path" ]; then
+                        cp "$pkg_path" release/
+                        echo "  PKG: $(basename "$pkg_path")"
+                      fi
+                      
+                      if [ -f "$sha_path" ]; then
+                        cp "$sha_path" release/
+                        echo "  SHA: $(basename "$sha_path")"
+                      fi
+                    fi
+                  done
+
+                  echo "=== Release Files ==="
+                  ls -la release/
+
+            - name: Create Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: v${{ env.VERSION }}
+                  name: MyCLI v${{ env.VERSION }} (Enhanced PKG Installer)
+                  body: |
+                      # MyCLI v${{ env.VERSION }} - PKG Installer
+
+                      Professional macOS installer packages with optional code signing.
+
+                      ## Installation Methods
+
+                      ### Via Homebrew (Recommended)
+                      ```bash
+                      brew tap naga-nandyala/mycli-app
+                      brew install --cask mycli-app-pkgsign-pj2
+                      ```
+
+                      ### Direct Download
+                      Download the appropriate `.pkg` file for your architecture:
+                      - **Apple Silicon (M1/M2/M3)**: `mycli-${{ env.VERSION }}-macos-arm64.pkg`
+                      - **Intel**: `mycli-${{ env.VERSION }}-macos-x86_64.pkg`
+
+                      Then install:
+                      ```bash
+                      sudo installer -pkg mycli-${{ env.VERSION }}-macos-{arch}.pkg -target /
+                      ```
+
+                      ## Package Details
+                      - ✅ Code-signed (if signing credentials were available during build)
+                      - ✅ Native macOS installer experience
+                      - ✅ System-wide installation to `/usr/local/microsoft/mycli`
+                      - ✅ Automatic PATH configuration
+                      - ✅ Full Azure broker authentication support
+
+                      ## Verification
+                      Verify the download with SHA256:
+                      ```bash
+                      shasum -a 256 -c mycli-${{ env.VERSION }}-macos-{arch}.pkg.sha256
+                      ```
+
+                      Check if package is signed:
+                      ```bash
+                      pkgutil --check-signature mycli-${{ env.VERSION }}-macos-{arch}.pkg
+                      ```
+
+                      Built with the enhanced PKG installer system providing professional installer experience with productbuild.
+                  files: |
+                      release/mycli-${{ env.VERSION }}-macos-arm64.pkg
+                      release/mycli-${{ env.VERSION }}-macos-arm64.pkg.sha256
+                      release/mycli-${{ env.VERSION }}-macos-x86_64.pkg
+                      release/mycli-${{ env.VERSION }}-macos-x86_64.pkg.sha256
+                  draft: false
+                  prerelease: false
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    summary:
+        name: Build Summary
+        runs-on: ubuntu-latest
+        needs: build-pkg
+        if: always()
+
+        steps:
+            - name: Build Summary
+              run: |
+                  echo "# PKG Build Summary (Enhanced Installer)" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "## Configuration" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Version**: \`${{ inputs.version || 'auto-detected' }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Extras**: \`broker (always included)\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Build Method**: productbuild (enhanced distribution)" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Script Used**: \`build_pkgnew_installer.py\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Signing**: Conditional (based on secrets availability)" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Create Release**: ${{ inputs.create_release }}" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "## Signing Status" >> $GITHUB_STEP_SUMMARY
+                  echo "Packages are signed if both secrets are configured:" >> $GITHUB_STEP_SUMMARY
+                  echo "- \`APPLE_SIGNING_CERTIFICATE\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- \`APPLE_CERT_PASSWORD\`" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "Check the 'Sign PKG installer' step for signing results." >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "## Build Status" >> $GITHUB_STEP_SUMMARY
+                  echo "Check individual job results above for detailed status." >> $GITHUB_STEP_SUMMARY
