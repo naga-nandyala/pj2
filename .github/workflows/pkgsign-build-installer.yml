@@ -164,20 +164,31 @@ jobs:
                   # List available signing identities
                   echo "=== Available Signing Identities ==="
                   security find-identity -v -p codesigning
+                  echo ""
+                  echo "=== All Identities (including self-signed) ==="
+                  security find-identity -v
 
-                  # Get certificate name
-                  CERT_NAME=$(security find-identity -v -p codesigning | \
+                  # Get certificate name - try Developer ID first
+                  CERT_NAME=$(security find-identity -v | \
                     grep "Developer ID Installer" | head -1 | \
                     sed 's/.*"\(.*\)".*/\1/')
 
-                  # Fallback to first available identity if no Developer ID found
+                  # Fallback to any certificate with "Installer" in the name
                   if [ -z "$CERT_NAME" ]; then
-                    CERT_NAME=$(security find-identity -v -p codesigning | \
+                    CERT_NAME=$(security find-identity -v | \
+                      grep -i "installer" | head -1 | \
+                      sed 's/.*"\(.*\)".*/\1/')
+                  fi
+
+                  # Last resort: use first available identity
+                  if [ -z "$CERT_NAME" ]; then
+                    CERT_NAME=$(security find-identity -v | \
+                      grep -v "0 valid identities found" | \
                       head -1 | sed 's/.*"\(.*\)".*/\1/')
                   fi
 
                   if [ -z "$CERT_NAME" ]; then
-                    echo "❌ No valid signing identity found"
+                    echo "❌ No signing identity found in keychain"
                     exit 1
                   fi
 
