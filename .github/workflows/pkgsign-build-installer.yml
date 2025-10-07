@@ -181,46 +181,24 @@ jobs:
                   echo "=== All Identities (including self-signed) ==="
                   security find-identity -v
                   echo ""
-                  
-                  # Try to find certificate by dumping keychain and looking for SHA-1
+
+                  # Try to find certificate by dumping keychain
                   echo "=== Searching keychain for certificates ==="
                   security dump-keychain "$KEYCHAIN_PATH" | grep -B 5 -A 5 "Developer ID Installer" || echo "No Developer ID Installer found in dump"
                   echo ""
 
-                  # Get certificate SHA-1 hash from keychain
-                  CERT_HASH=$(security find-certificate -a -Z "$KEYCHAIN_PATH" 2>/dev/null | \
-                    grep -A 1 "Developer ID Installer" | \
-                    grep "SHA-1" | \
-                    awk '{print $NF}')
-                  
-                  if [ -n "$CERT_HASH" ]; then
-                    echo "Found certificate with SHA-1: $CERT_HASH"
-                    CERT_NAME="$CERT_HASH"
-                  else
-                    echo "Could not find certificate by hash, trying by name..."
-                    
-                    # Get certificate name - try Developer ID first
-                    CERT_NAME=$(security find-identity -v | \
-                      grep "Developer ID Installer" | head -1 | \
-                      sed 's/.*"\(.*\)".*/\1/')
-
-                    # Fallback to any certificate with "Installer" in the name
-                    if [ -z "$CERT_NAME" ]; then
-                      CERT_NAME=$(security find-identity -v | \
-                        grep -i "installer" | head -1 | \
-                        sed 's/.*"\(.*\)".*/\1/')
-                    fi
-
-                    # Last resort: use first available identity
-                    if [ -z "$CERT_NAME" ]; then
-                      CERT_NAME=$(security find-identity -v | \
-                        grep -v "0 valid identities found" | \
-                        head -1 | sed 's/.*"\(.*\)".*/\1/')
-                    fi
-                  fi
+                  # Extract certificate name from keychain dump
+                  # This works even for self-signed certificates that don't appear in find-identity
+                  CERT_NAME=$(security dump-keychain "$KEYCHAIN_PATH" | \
+                    grep -o '"Developer ID Installer: MyOrg (TESTCERT)"' | \
+                    head -1 | \
+                    tr -d '"')
 
                   if [ -z "$CERT_NAME" ]; then
-                    echo "❌ No signing identity found in keychain"
+                    echo "❌ Could not find 'Developer ID Installer: MyOrg (TESTCERT)' in keychain dump"
+                    echo "⚠️  Note: Self-signed certificates will NOT appear in 'security find-identity -v'"
+                    echo "⚠️  This is a macOS security limitation - self-signed certs cannot be used for code signing"
+                    echo "⚠️  For production, you need an Apple Developer ID certificate ($99/year)"
                     exit 1
                   fi
 
@@ -229,34 +207,65 @@ jobs:
                   # Sign the package
                   echo "=== Signing PKG ==="
                   echo "Signing: $PKG_FILE"
+                  echo "Certificate: $CERT_NAME"
+                  echo "Keychain: $KEYCHAIN_PATH"
 
                   # Create backup of unsigned PKG
                   cp "$PKG_FILE" "${PKG_FILE}.unsigned"
 
-                  # Sign the PKG (with timestamp if possible)
+                  # Try to sign with explicit keychain reference
+                  # Note: productsign may still fail if certificate is not from a trusted CA
+                  echo "Attempting to sign (this may fail for self-signed certificates)..."
+                  
                   if productsign --sign "$CERT_NAME" \
+                       --keychain "$KEYCHAIN_PATH" \
                        --timestamp \
                        "${PKG_FILE}.unsigned" \
-                       "$PKG_FILE" 2>/dev/null; then
+                       "$PKG_FILE" 2>&1; then
                     echo "✅ Signed with timestamp"
+                    SIGNED=true
                   else
-                    echo "⚠️  Timestamp failed, signing without timestamp..."
-                    productsign --sign "$CERT_NAME" \
-                      "${PKG_FILE}.unsigned" \
-                      "$PKG_FILE"
-                    echo "✅ Signed without timestamp"
+                    echo "⚠️  Timestamp signing failed, trying without timestamp..."
+                    if productsign --sign "$CERT_NAME" \
+                         --keychain "$KEYCHAIN_PATH" \
+                         "${PKG_FILE}.unsigned" \
+                         "$PKG_FILE" 2>&1; then
+                      echo "✅ Signed without timestamp"
+                      SIGNED=true
+                    else
+                      echo "❌ Signing failed"
+                      echo "⚠️  This is expected for self-signed certificates"
+                      echo "⚠️  macOS productsign requires certificates from trusted CAs"
+                      echo "⚠️  For learning purposes, the unsigned PKG is available"
+                      echo "⚠️  For production code signing, you need:"
+                      echo "    - Apple Developer Program membership ($99/year)"
+                      echo "    - Developer ID Installer certificate from Apple"
+                      SIGNED=false
+                      # Use the unsigned PKG
+                      mv "${PKG_FILE}.unsigned" "$PKG_FILE"
+                    fi
                   fi
 
-                  # Verify signature
-                  echo "=== Verifying Signature ==="
-                  pkgutil --check-signature "$PKG_FILE"
+                  # Verify signature (or acknowledge unsigned status)
+                  echo "=== Verifying Package ==="
+                  if [ "$SIGNED" = "true" ]; then
+                    pkgutil --check-signature "$PKG_FILE"
+                    echo "✅ Package signed successfully"
+                  else
+                    echo "⚠️  Package is unsigned (self-signed certificate limitation)"
+                    echo "ℹ️  The PKG is functional but will show security warnings on installation"
+                  fi
 
                   # Cleanup
                   rm -f "${PKG_FILE}.unsigned"
                   rm -f certificate.p12
                   security delete-keychain "$KEYCHAIN_PATH" || true
 
-                  echo "✅ Package signing completed successfully"
+                  if [ "$SIGNED" = "true" ]; then
+                    echo "✅ Package signing completed successfully"
+                  else
+                    echo "⚠️  Package created but unsigned (self-signed cert limitation)"
+                  fi
 
             - name: Debug PKG contents
               run: |
