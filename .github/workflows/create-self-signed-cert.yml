@@ -16,16 +16,37 @@ jobs:
                   mkdir -p ~/cert-temp
                   cd ~/cert-temp
 
+                  # Create OpenSSL config for code signing certificate
+                  cat > codesign.conf << 'EOF'
+                  [req]
+                  default_bits = 2048
+                  distinguished_name = req_distinguished_name
+                  x509_extensions = v3_req
+                  prompt = no
+
+                  [req_distinguished_name]
+                  C = US
+                  ST = State
+                  L = City
+                  O = MyOrg
+                  OU = Development
+                  CN = Developer ID Installer: MyOrg (TESTCERT)
+
+                  [v3_req]
+                  keyUsage = critical, digitalSignature
+                  extendedKeyUsage = critical, codeSigning
+                  basicConstraints = critical, CA:FALSE
+                  subjectKeyIdentifier = hash
+                  EOF
+
                   # Generate private key
                   openssl genrsa -out private-key.pem 2048
 
-                  # Create certificate signing request
-                  openssl req -new -key private-key.pem -out cert-request.csr \
-                    -subj "/C=US/ST=State/L=City/O=MyOrg/OU=Dev/CN=My Test Installer Certificate"
-
-                  # Self-sign the certificate (valid for 1 year)
-                  openssl x509 -req -days 365 -in cert-request.csr \
-                    -signkey private-key.pem -out certificate.pem
+                  # Create self-signed certificate with code signing extensions
+                  openssl req -new -x509 -days 365 \
+                    -key private-key.pem \
+                    -out certificate.pem \
+                    -config codesign.conf
 
                   # Create PKCS12 bundle (.p12) with password
                   CERT_PASSWORD="test123"
