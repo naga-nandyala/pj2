@@ -216,7 +216,7 @@ jobs:
                   # Try to sign with explicit keychain reference
                   # Note: productsign may still fail if certificate is not from a trusted CA
                   echo "Attempting to sign (this may fail for self-signed certificates)..."
-                  
+
                   if productsign --sign "$CERT_NAME" \
                        --keychain "$KEYCHAIN_PATH" \
                        --timestamp \

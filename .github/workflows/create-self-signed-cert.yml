@@ -62,7 +62,7 @@ jobs:
                   openssl pkcs12 -in certificate.p12 -nokeys -passin pass:$CERT_PASSWORD | \
                     openssl x509 -noout -subject -dates
                   echo "✅ Certificate found in P12"
-                  
+
                   # Check if private key is present
                   if openssl pkcs12 -in certificate.p12 -nocerts -passin pass:$CERT_PASSWORD -passout pass:temp123 2>/dev/null | grep -q "PRIVATE KEY"; then
                     echo "✅ Private key found in P12"
